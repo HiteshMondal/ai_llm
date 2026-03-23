@@ -4,45 +4,20 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
-#  Colours 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
+APP_HOST="${APP_HOST:-127.0.0.1}"
+APP_PORT="${APP_PORT:-8000}"
+UI_PORT="${UI_PORT:-7860}"
 
-info()    { echo -e "${CYAN}[run]${RESET} $*"; }
-success() { echo -e "${GREEN}[run]${RESET} $*"; }
-warn()    { echo -e "${YELLOW}[run]${RESET} $*"; }
-error()   { echo -e "${RED}[run]${RESET} $*" >&2; }
+SUPPORTED_EXTS=("txt" "md")
 
-#  Usage 
-usage() {
-    echo -e "
-${BOLD}Usage:${RESET}  bash run.sh <command> [options]
+# Helpers
 
-${BOLD}Commands:${RESET}
-  ${GREEN}setup${RESET}               First-time setup (venv, deps, Ollama models)
-  ${GREEN}start${RESET}               Start FastAPI + Gradio UI
-  ${GREEN}start --api-only${RESET}    Start FastAPI only (no Gradio)
-  ${GREEN}start --docker${RESET}      Start via Docker Compose
-  ${GREEN}ingest${RESET} <path>       Ingest a file or directory of documents
-  ${GREEN}chat${RESET} \"<question>\"   Ask a one-off question via the API
-  ${GREEN}health${RESET}              Check API health
-  ${GREEN}train${RESET}               Run training script
-  ${GREEN}finetune${RESET}            Run LoRA fine-tuning script
-  ${GREEN}evaluate${RESET}            Run evaluation script
-  ${GREEN}stop${RESET}                Stop Docker Compose services
-  ${GREEN}logs${RESET}                Tail Docker Compose logs
-  ${GREEN}help${RESET}                Show this message
-"
-    exit 0
-}
-
-#  Helpers 
 activate_venv() {
     if [ -f ".venv/bin/activate" ]; then
-        # shellcheck disable=SC1091
         source .venv/bin/activate
     else
-        error "Virtual environment not found. Run:  bash run.sh setup"
+        echo "[run] Virtual environment missing."
+        echo "Run: bash run.sh setup"
         exit 1
     fi
 }
@@ -50,161 +25,206 @@ activate_venv() {
 load_env() {
     if [ -f ".env" ]; then
         set -o allexport
-        # shellcheck disable=SC1091
         source .env
         set +o allexport
     fi
 }
 
-require_running_api() {
-    local host="${APP_HOST:-127.0.0.1}"
-    local port="${APP_PORT:-8000}"
-    if ! curl -sf "http://${host}:${port}/health" >/dev/null 2>&1; then
-        error "API is not running at http://${host}:${port}. Start it first with:  bash run.sh start"
-        exit 1
-    fi
+encode_json_string() {
+    printf '%s' "$1" \
+        | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))"
 }
 
-#  Commands 
+# Setup
 
 cmd_setup() {
-    info "Running setup..."
-    bash infra/scripts/setup.sh
+
+    echo "==> Creating virtual environment"
+    rm -rf .venv
+    python3 -m venv .venv
+    source .venv/bin/activate
+
+    echo "==> Upgrading pip"
+    pip install --upgrade pip
+
+    echo "==> Installing CPU-only PyTorch"
+    pip install torch \
+        --index-url https://download.pytorch.org/whl/cpu
+
+    echo "==> Installing dependencies"
+    pip install -r requirements.txt
+
+    echo "==> Creating directories"
+    mkdir -p data/uploads
+    mkdir -p data/chroma
+
+    echo "==> Downloading embedding model"
+    python3 - <<'PY'
+from sentence_transformers import SentenceTransformer
+SentenceTransformer("all-MiniLM-L6-v2")
+PY
+
+    if command -v ollama &>/dev/null; then
+        echo "==> Pulling tinyllama model"
+        ollama pull tinyllama
+    else
+        echo "⚠ Install Ollama: https://ollama.com"
+    fi
+
+    echo "✅ Setup complete"
 }
+
+# Start API + UI
 
 cmd_start() {
-    local mode="${1:-}"
+
     load_env
-
-    if [ "$mode" = "--docker" ]; then
-        info "Starting via Docker Compose..."
-        docker compose -f infra/docker/docker-compose.yml up --build
-        return
-    fi
-
     activate_venv
 
-    local host="${APP_HOST:-0.0.0.0}"
-    local port="${APP_PORT:-8000}"
-    local debug="${APP_DEBUG:-false}"
-    local ui_port="${UI_PORT:-7860}"
+    echo "[run] Starting FastAPI http://${APP_HOST}:${APP_PORT}"
 
-    if [ "$mode" = "--api-only" ]; then
-        info "Starting FastAPI at http://${host}:${port}"
-        if [ "$debug" = "true" ]; then
-            uvicorn app.main:app --host "$host" --port "$port" --reload
-        else
-            uvicorn app.main:app --host "$host" --port "$port"
-        fi
-        return
-    fi
+    uvicorn app.main:app \
+        --host "$APP_HOST" \
+        --port "$APP_PORT" &
 
-    # Start both FastAPI and Gradio
-    info "Starting FastAPI  →  http://${host}:${port}"
-    info "Starting Gradio   →  http://0.0.0.0:${ui_port}"
-
-    if [ "$debug" = "true" ]; then
-        uvicorn app.main:app --host "$host" --port "$port" --reload &
-    else
-        uvicorn app.main:app --host "$host" --port "$port" &
-    fi
     API_PID=$!
 
-    python -m app.ui.app_ui &
+    echo "[run] Starting Gradio http://0.0.0.0:${UI_PORT}"
+
+    python -m app.ui &
+
     UI_PID=$!
 
-    trap 'echo ""; info "Shutting down..."; kill "$API_PID" "$UI_PID" 2>/dev/null; exit 0' INT TERM
+    trap 'echo ""; echo "[run] stopping..."; kill $API_PID $UI_PID 2>/dev/null; exit 0' INT TERM
 
-    success "Both services running. Press Ctrl+C to stop."
-    wait "$API_PID" "$UI_PID"
+    echo "[run] running (Ctrl+C to stop)"
+
+    wait
 }
 
-cmd_ingest() {
-    local target="${1:-}"
-    if [ -z "$target" ]; then
-        error "Please provide a file or directory path."
-        echo "  Example:  bash run.sh ingest data/raw/"
-        exit 1
-    fi
-    load_env
-    bash infra/scripts/ingest.sh "$target"
-}
+# Chat helper
 
 cmd_chat() {
-    local question="${1:-}"
-    if [ -z "$question" ]; then
-        error "Please provide a question."
-        echo "  Example:  bash run.sh chat \"What is this document about?\""
+
+    activate_venv
+
+    QUESTION="$1"
+
+    JSON=$(encode_json_string "$QUESTION")
+
+    curl -s \
+        -X POST \
+        "http://${APP_HOST}:${APP_PORT}/chat" \
+        -H "Content-Type: application/json" \
+        -d "{\"question\": $JSON, \"k\": 4}" \
+        | python3 -m json.tool
+}
+
+# Ingest helper
+
+cmd_ingest() {
+
+    activate_venv
+
+    API_URL="http://${APP_HOST}:${APP_PORT}/ingest"
+
+    if [ $# -eq 0 ]; then
+        echo "Usage:"
+        echo "bash run.sh ingest <file|directory>"
         exit 1
     fi
-    load_env
-    local host="${APP_HOST:-127.0.0.1}"
-    local port="${APP_PORT:-8000}"
-    require_running_api
 
-    info "Sending question to RAG API..."
-    curl -s -X POST "http://${host}:${port}/chat" \
-        -H "Content-Type: application/json" \
-        -d "{\"question\": \"${question}\", \"k\": 4}" | python3 -m json.tool
+    ingest_file() {
+
+        FILE="$1"
+
+        EXT="${FILE##*.}"
+
+        VALID=false
+
+        for e in "${SUPPORTED_EXTS[@]}"; do
+            if [ "$EXT" = "$e" ]; then
+                VALID=true
+            fi
+        done
+
+        if [ "$VALID" = false ]; then
+            echo "[skip] $FILE"
+            return
+        fi
+
+        echo "[upload] $FILE"
+
+        curl \
+            -s \
+            -X POST \
+            "$API_URL" \
+            -F "file=@${FILE}"
+    }
+
+    for TARGET in "$@"; do
+
+        if [ -f "$TARGET" ]; then
+
+            ingest_file "$TARGET"
+
+        elif [ -d "$TARGET" ]; then
+
+            find "$TARGET" \
+                -type f \
+                \( -name "*.txt" -o -name "*.md" \) \
+                | while read -r FILE; do
+
+                ingest_file "$FILE"
+
+            done
+
+        else
+
+            echo "[warn] not found: $TARGET"
+
+        fi
+
+    done
+
+    echo "✅ ingest complete"
 }
 
-cmd_health() {
-    load_env
-    local host="${APP_HOST:-127.0.0.1}"
-    local port="${APP_PORT:-8000}"
-    info "Checking health at http://${host}:${port}/health ..."
-    curl -s "http://${host}:${port}/health" | python3 -m json.tool \
-        && success "API is up." \
-        || error "API is not responding."
-}
+# CLI
 
-cmd_train() {
-    activate_venv
-    info "Starting training..."
-    python training/scripts/train.py --config training/configs/train_config.yaml
-}
+case "${1:-help}" in
 
-cmd_finetune() {
-    activate_venv
-    info "Starting LoRA fine-tuning..."
-    python training/scripts/fine_tune.py --config training/configs/fine_tune_config.yaml
-}
+setup)
+    cmd_setup
+    ;;
 
-cmd_evaluate() {
-    activate_venv
-    info "Starting evaluation..."
-    python training/scripts/evaluate.py --config training/configs/eval_config.yaml
-}
+start)
+    cmd_start
+    ;;
 
-cmd_stop() {
-    info "Stopping Docker Compose services..."
-    docker compose -f infra/docker/docker-compose.yml down
-    success "Services stopped."
-}
+chat)
+    shift
+    cmd_chat "$@"
+    ;;
 
-cmd_logs() {
-    info "Tailing Docker Compose logs (Ctrl+C to exit)..."
-    docker compose -f infra/docker/docker-compose.yml logs -f
-}
+ingest)
+    shift
+    cmd_ingest "$@"
+    ;;
 
-#  Entrypoint 
-COMMAND="${1:-help}"
-shift || true
+help|--help)
+    echo ""
+    echo "Usage:"
+    echo "bash run.sh setup"
+    echo "bash run.sh start"
+    echo "bash run.sh chat \"question\""
+    echo "bash run.sh ingest file.txt"
+    echo ""
+    ;;
 
-case "$COMMAND" in
-    setup)            cmd_setup ;;
-    start)            cmd_start "${1:-}" ;;
-    ingest)           cmd_ingest "${1:-}" ;;
-    chat)             cmd_chat "${1:-}" ;;
-    health)           cmd_health ;;
-    train)            cmd_train ;;
-    finetune)         cmd_finetune ;;
-    evaluate)         cmd_evaluate ;;
-    stop)             cmd_stop ;;
-    logs)             cmd_logs ;;
-    help|--help|-h)   usage ;;
-    *)
-        error "Unknown command: '$COMMAND'"
-        usage
-        ;;
+*)
+    echo "Unknown command"
+    exit 1
+    ;;
+
 esac

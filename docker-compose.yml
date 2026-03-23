@@ -1,0 +1,46 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ../..
+      dockerfile: app/docker/Dockerfile
+    container_name: rag_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../../.env
+    environment:
+      - LLM_BASE_URL=http://ollama:11434
+      - APP_HOST=0.0.0.0
+    volumes:
+      - ../../data:/app/data
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: ../..
+      dockerfile: app/docker/Dockerfile
+    container_name: rag_ui
+    command: python3 -m app.ui.app_ui
+    ports:
+      - "7860:7860"
+    env_file:
+      - ../../.env
+    environment:
+      - APP_HOST=api
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
