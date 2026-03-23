@@ -1,0 +1,52 @@
+services:
+
+  app:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile
+    container_name: ai_llm_app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+      - "7860:7860"
+    env_file:
+      - ../../.env
+    volumes:
+      - ../../data:/app/data
+      - ../../models:/app/models
+      - ../../training:/app/training
+    depends_on:
+      - ollama
+      - chromadb
+    networks:
+      - ai_net
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ai_llm_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - ai_net
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: ai_llm_chromadb
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - ai_net
+
+volumes:
+  ollama_data:
+  chroma_data:
+
+networks:
+  ai_net:
+    driver: bridge

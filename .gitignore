@@ -1,0 +1,85 @@
+#  Python 
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.Python
+pip-wheel-metadata/
+
+#  Virtual Environment 
+.venv/
+venv/
+env/
+ENV/
+
+#  Environment & Secrets 
+.env
+!.env.example
+
+#  Data (runtime generated) 
+data/uploads/*
+data/processed/*
+data/raw/*
+data/embeddings/*
+data/cache/*
+!data/.gitkeep
+!data/uploads/.gitkeep
+!data/processed/.gitkeep
+!data/raw/.gitkeep
+!data/embeddings/.gitkeep
+!data/cache/.gitkeep
+
+#  Models 
+models/base/*
+models/embeddings/*
+models/fine-tuned/*
+models/quantized/*
+!models/.gitkeep
+
+#  Training Artifacts 
+training/checkpoints/*
+training/logs/*
+training/datasets/*
+!training/checkpoints/.gitkeep
+!training/logs/.gitkeep
+!training/datasets/.gitkeep
+
+#  ChromaDB 
+chroma/
+*.chroma
+
+#  Jupyter 
+.ipynb_checkpoints/
+*.ipynb
+
+#  OS 
+.DS_Store
+Thumbs.db
+desktop.ini
+
+#  IDEs 
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+#  Logs 
+*.log
+logs/
+
+#  Docker 
+.docker/
+
+#  Misc 
+*.bak
+*.tmp
+*.orig
+.cache/
