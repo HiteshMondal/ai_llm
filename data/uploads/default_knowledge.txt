@@ -1,398 +1,397 @@
 AI RAG Assistant – Default Knowledge Base
 
-Welcome!
+---
 
-This assistant is powered by a Retrieval-Augmented Generation (RAG) system.
-It answers questions using both a language model and a searchable knowledge base.
+## INTRODUCTION
 
-If no user documents are uploaded yet, the assistant will answer questions using this default knowledge file.
+This assistant is powered by a Retrieval-Augmented Generation (RAG) architecture.
 
+RAG combines:
 
---------------------------------------------------
-WHAT THIS APPLICATION IS
---------------------------------------------------
+semantic search
+vector databases
+document retrieval
+language model reasoning
 
-This application is an AI-powered document assistant built using:
+The assistant retrieves relevant document content and uses it as context before generating responses.
 
-- FastAPI backend
-- LangChain retrieval pipeline
-- Chroma vector database
-- SentenceTransformers embeddings
-- Multi-provider LLM support
-- Gradio web interface
+If no user documents are uploaded yet, this file acts as the primary knowledge source.
 
-The assistant retrieves relevant information from stored documents and uses it as context for generating accurate answers.
+---
 
-This approach improves factual accuracy compared to standard chatbots.
+## WHAT THIS APPLICATION IS
 
+This system is a modular AI document assistant designed for knowledge retrieval and technical question answering.
 
---------------------------------------------------
-WHAT IS RAG (Retrieval-Augmented Generation)?
---------------------------------------------------
+Core components include:
 
-Retrieval-Augmented Generation is a technique that improves large language model responses by combining:
+FastAPI backend API
+LangChain retrieval pipeline
+Chroma vector database
+SentenceTransformers embedding model
+optional cross-encoder reranker
+multi-provider LLM support
+connector-based ingestion architecture
+query caching system
+streaming response pipeline
+session conversation memory
+Gradio web interface
 
-1) Information retrieval
-2) Context injection
-3) Language model reasoning
+The system retrieves document fragments from storage and injects them into prompts before generating responses.
 
-Instead of relying only on training data, the assistant:
+---
 
-- searches stored documents
-- extracts relevant text
-- passes context into the language model
-- generates grounded responses
-
-Benefits include:
-
-- reduced hallucinations
-- improved accuracy
-- domain-specific answers
-- support for private datasets
-- support for enterprise knowledge systems
-
-
---------------------------------------------------
-SYSTEM ARCHITECTURE OVERVIEW
---------------------------------------------------
-
-This assistant follows a modular architecture:
-
-User Question
-        ↓
-Retriever (vector database search)
-        ↓
-Context Selection
-        ↓
-Language Model
-        ↓
-Grounded Answer
-
-Documents are stored as embeddings inside a vector database.
-
-Each document is:
-
-loaded
-cleaned
-split into chunks
-embedded
-stored
-retrieved during queries
-
-
---------------------------------------------------
-SUPPORTED LANGUAGE MODEL PROVIDERS
---------------------------------------------------
-
-This assistant supports multiple AI providers:
-
-Local providers:
-
-- Ollama (runs models locally)
-- TinyLlama
-- LLaMA-family models (if installed)
-
-API providers:
-
-- Google Gemini
-- Groq
-- OpenRouter
-- OpenAI
-
-Users may switch providers dynamically.
-
-
---------------------------------------------------
-SUPPORTED EMBEDDING PROVIDERS
---------------------------------------------------
-
-Embedding providers convert text into vector representations.
-
-Supported providers include:
-
-Local:
-
-- sentence-transformers/all-MiniLM-L6-v2
-
-Cloud:
-
-- Gemini embeddings
-- OpenAI embeddings
-
-Embeddings are stored locally in Chroma vector storage.
-
-
---------------------------------------------------
-SUPPORTED DOCUMENT TYPES
---------------------------------------------------
-
-Currently supported document types:
-
-- TXT files
-- Markdown files
-
-These files are automatically:
-
-loaded
-cleaned
-chunked
-embedded
-stored
-
-
---------------------------------------------------
-SUPPORTED ONLINE DATA SOURCES
---------------------------------------------------
-
-Documents may also be ingested from:
-
-GitHub repositories
-
-The assistant can:
-
-download files
-extract readable content
-store them as searchable knowledge
-
-Notion pages
-
-The assistant can:
-
-retrieve workspace content
-index structured knowledge
-search across pages
-
-Google Drive folders
-
-The assistant can:
-
-connect using OAuth
-retrieve files
-index documents
-
-Web URLs
-
-The assistant can:
-
-download webpage text
-extract readable content
-store knowledge
-
-
---------------------------------------------------
-HOW DOCUMENT INGESTION WORKS
---------------------------------------------------
-
-When a document is uploaded:
-
-Step 1
-
-The file is saved locally.
-
-Step 2
-
-Text content is extracted.
-
-Step 3
-
-Text is cleaned to remove formatting noise.
-
-Step 4
-
-Content is split into smaller chunks.
-
-Step 5
-
-Chunks are converted into embeddings.
-
-Step 6
-
-Embeddings are stored inside the vector database.
-
-After this process, the assistant can answer questions using the document.
-
-
---------------------------------------------------
-WHAT IS A VECTOR DATABASE?
---------------------------------------------------
-
-A vector database stores text as numerical representations called embeddings.
-
-Embeddings allow semantic search instead of keyword search.
-
-This means the assistant can understand:
-
-meaning
-intent
-context
-
-instead of matching exact words.
-
-
---------------------------------------------------
-HOW RETRIEVAL WORKS
---------------------------------------------------
+## HIGH LEVEL PIPELINE OVERVIEW
 
 When a question is asked:
 
-1) the question is converted into an embedding
-2) the vector database finds similar document chunks
-3) the best matching chunks are selected
-4) the language model uses those chunks to generate an answer
+1. the question is converted into an embedding
+2. the vector database searches similar chunks
+3. top matching chunks are selected
+4. optional reranking improves relevance
+5. selected context is inserted into the prompt
+6. language model generates a grounded response
 
-This ensures responses are grounded in stored knowledge.
+---
 
+## RETRIEVAL AUGMENTED GENERATION (RAG)
 
---------------------------------------------------
-WHY THIS SYSTEM IS USEFUL
---------------------------------------------------
+Retrieval-Augmented Generation improves answer quality by combining:
 
-This system can be used for:
+document retrieval
+context selection
+language model reasoning
+
+Benefits include:
+
+reduced hallucination
+domain-specific responses
+support for private knowledge bases
+improved factual accuracy
+enterprise-ready architecture
+
+---
+
+## DOCUMENT INGESTION PIPELINE
+
+When a document is ingested:
+
+Step 1
+
+file is uploaded or downloaded from connector
+
+Step 2
+
+text content is extracted
+
+Step 3
+
+content is cleaned
+
+Step 4
+
+document is split into smaller chunks
+
+Step 5
+
+chunks are converted into embeddings
+
+Step 6
+
+embeddings are stored in the vector database
+
+After ingestion, document content becomes searchable.
+
+---
+
+## SUPPORTED DOCUMENT TYPES
+
+Currently supported:
+
+TXT files
+Markdown files
+
+These formats are automatically processed and indexed.
+
+---
+
+## VECTOR DATABASE EXPLANATION
+
+This system uses a vector database instead of keyword search.
+
+Vector databases store embeddings representing semantic meaning.
+
+Advantages:
+
+understands intent instead of exact words
+supports similarity search
+retrieves relevant context automatically
+improves response accuracy
+
+---
+
+## CHROMA VECTOR STORAGE
+
+This assistant uses Chroma as the vector database backend.
+
+Chroma stores:
+
+text chunks
+embedding vectors
+metadata information
+
+Chroma enables fast semantic retrieval across stored documents.
+
+---
+
+## EMBEDDING MODELS
+
+Embeddings convert text into numerical vectors.
+
+Supported embedding providers include:
+
+local SentenceTransformers models
+
+example:
+
+all-MiniLM-L6-v2
+
+cloud embedding providers:
+
+Google Gemini embeddings
+OpenAI embeddings
+
+Embeddings allow semantic similarity search.
+
+---
+
+## SUPPORTED LANGUAGE MODEL PROVIDERS
+
+This assistant supports multiple LLM providers.
+
+Local providers:
+
+Ollama
+TinyLlama
+LLaMA family models
+
+Cloud providers:
+
+Google Gemini
+Groq
+OpenRouter
+OpenAI
+
+Providers can be changed through configuration.
+
+---
+
+## RERANKING SYSTEM
+
+The assistant optionally supports cross-encoder reranking.
+
+Reranking improves retrieval accuracy by:
+
+scoring candidate chunks
+reordering results
+selecting strongest matches
+
+This improves answer quality when many documents exist.
+
+---
+
+## STREAMING RESPONSE PIPELINE
+
+Streaming responses allow answers to appear progressively.
+
+Benefits include:
+
+lower perceived latency
+better interactivity
+real-time answer generation
+
+---
+
+## SESSION MEMORY SUPPORT
+
+Conversation history can be included in prompts.
+
+This allows:
+
+follow-up questions
+context-aware conversations
+multi-turn interactions
+
+---
+
+## QUERY CACHE SYSTEM
+
+The assistant includes a query cache.
+
+The cache stores:
+
+question text
+retrieval depth
+provider selection
+model selection
+
+Benefits:
+
+faster repeated responses
+lower compute usage
+reduced latency
+
+---
+
+## CONNECTOR BASED INGESTION
+
+The system supports connector-based knowledge ingestion.
+
+Supported connectors include:
+
+GitHub repositories
+Notion workspaces
+Google Drive folders
+Web URLs
+
+---
+
+## GITHUB CONNECTOR CAPABILITIES
+
+The GitHub connector can:
+
+download repository files
+extract documentation content
+index README files
+index Markdown documentation
+store searchable project knowledge
+
+---
+
+## NOTION CONNECTOR CAPABILITIES
+
+The Notion connector can:
+
+retrieve workspace pages
+extract structured content
+index documentation
+store searchable knowledge
+
+---
+
+## GOOGLE DRIVE CONNECTOR CAPABILITIES
+
+The Google Drive connector can:
+
+authenticate using OAuth
+retrieve shared files
+index stored documents
+enable private dataset retrieval
+
+---
+
+## WEB CONNECTOR CAPABILITIES
+
+The web connector can:
+
+download webpage content
+extract readable article text
+remove boilerplate HTML
+store searchable web knowledge
+
+---
+
+## METADATA STORED WITH DOCUMENTS
+
+Each document chunk may contain metadata such as:
+
+source filename
+connector type
+document origin
+ingestion timestamp
+
+Metadata helps with:
+
+document traceability
+source tracking
+future filtering support
+
+---
+
+## HOW RETRIEVAL WORKS DURING A QUERY
+
+When a question is asked:
+
+question converted into embedding
+
+vector database searches nearest matches
+
+top matching chunks selected
+
+context injected into prompt
+
+language model generates response
+
+---
+
+## USE CASES FOR THIS SYSTEM
+
+This assistant can be used for:
 
 personal knowledge assistants
+
 developer documentation search
+
 research assistants
-enterprise knowledge search
-technical onboarding assistants
-customer support knowledge bots
 
-It works especially well with private datasets.
+technical onboarding systems
 
+enterprise knowledge retrieval
 
---------------------------------------------------
-EXAMPLE QUESTIONS YOU CAN ASK
---------------------------------------------------
+support automation assistants
 
-Try asking:
+---
 
-What is this application?
+## HOW TO IMPROVE ANSWER QUALITY
 
-How does RAG work?
+Answer quality improves when additional documents are uploaded.
 
-Which AI providers are supported?
-
-How does document ingestion work?
-
-What is a vector database?
-
-What happens after uploading files?
-
-Can this system search GitHub repositories?
-
-Can this system read Notion pages?
-
-Can this assistant use Google Drive documents?
-
-What embeddings are used?
-
-
---------------------------------------------------
-HOW TO GET BETTER ANSWERS
---------------------------------------------------
-
-Upload your own documents to improve answer quality.
-
-You can upload:
+Recommended uploads include:
 
 technical documentation
+
+project READMEs
+
+research material
+
 notes
-research papers
-markdown files
+
 knowledge bases
 
-Once uploaded, those documents become searchable.
+architecture documentation
 
+---
 
---------------------------------------------------
-SYSTEM DESIGN GOALS
---------------------------------------------------
+## PROJECT PURPOSE
 
-This assistant was designed to be:
+This project demonstrates a production-style Retrieval-Augmented Generation assistant architecture with:
 
-modular
-extensible
-provider-independent
-offline-capable
-configurable
-production-ready
+semantic vector search
 
-
---------------------------------------------------
-ADVANCED FEATURES
---------------------------------------------------
-
-This system supports:
-
-multiple LLM providers
-
-local embeddings
-
-remote embeddings
+multi-provider LLM support
 
 connector-based ingestion
 
 document lifecycle management
 
-vector database persistence
+query caching
 
-runtime provider switching
+streaming responses
 
-custom system instructions
+session memory
 
+extensible modular backend design
 
---------------------------------------------------
-WHAT HAPPENS IF NO FILES ARE UPLOADED
---------------------------------------------------
+---
 
-If no documents are uploaded yet:
-
-the assistant uses this default knowledge base
-
-This ensures the assistant remains functional immediately after installation.
-
-
---------------------------------------------------
-HOW TO IMPROVE RESULTS
---------------------------------------------------
-
-Best practices:
-
-upload multiple documents
-
-use markdown formatting
-
-organize knowledge by topic
-
-avoid extremely large files
-
-keep documents structured
-
-
---------------------------------------------------
-ABOUT THIS PROJECT
---------------------------------------------------
-
-This project demonstrates:
-
-modern RAG architecture
-
-multi-provider AI integration
-
-vector database usage
-
-retrieval pipelines
-
-document ingestion systems
-
-modular connectors
-
-production-style backend design
-
-interactive web interface
-
-It is designed as a foundation for building advanced AI assistants.
-
-
---------------------------------------------------
-END OF DEFAULT KNOWLEDGE BASE
---------------------------------------------------
+## END OF DEFAULT KNOWLEDGE BASE

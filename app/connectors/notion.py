@@ -4,12 +4,11 @@ Notion connector.
 Setup:
   1. Go to https://www.notion.so/my-integrations
   2. Create a new integration → copy the Internal Integration Token
-  3. Open each Notion page/database you want to ingest →
-     click "..." menu → "Add connections" → select your integration
+  3. Open each Notion page/database → "..." → "Add connections" → select your integration
   4. Add to .env:
        NOTION_TOKEN=secret_xxxxxxxxxxxxxx
-       NOTION_PAGE_IDS=page_id1,page_id2   (optional, comma-separated)
-       NOTION_DATABASE_IDS=db_id1          (optional, comma-separated)
+       NOTION_PAGE_IDS=page_id1,page_id2   (optional)
+       NOTION_DATABASE_IDS=db_id1          (optional)
 
 Required package:  pip install notion-client
 """
@@ -46,7 +45,10 @@ class NotionConnector(BaseConnector):
         """Recursively convert Notion blocks to plain text."""
         lines = []
         try:
-            children = client.blocks.children.list(block_id=block_id)
+            children = self._retry(
+                lambda: client.blocks.children.list(block_id=block_id),
+                label=f"Notion.blocks.children({block_id})",
+            )
         except Exception as e:
             log.warning(f"Could not fetch children of block {block_id}: {e}")
             return ""
@@ -58,15 +60,15 @@ class NotionConnector(BaseConnector):
             text = "".join(t.get("plain_text", "") for t in rich)
 
             prefix = {
-                "heading_1": "# ",
-                "heading_2": "## ",
-                "heading_3": "### ",
-                "bulleted_list_item": "- ",
-                "numbered_list_item": "1. ",
-                "to_do": "[ ] ",
-                "toggle": "> ",
-                "quote": "> ",
-                "code": "```\n",
+                "heading_1":           "# ",
+                "heading_2":           "## ",
+                "heading_3":           "### ",
+                "bulleted_list_item":  "- ",
+                "numbered_list_item":  "1. ",
+                "to_do":               "[ ] ",
+                "toggle":              "> ",
+                "quote":               "> ",
+                "code":                "```\n",
             }.get(btype, "")
             suffix = "\n```" if btype == "code" else ""
 
@@ -74,7 +76,6 @@ class NotionConnector(BaseConnector):
                 indent = "  " * depth
                 lines.append(f"{indent}{prefix}{text}{suffix}")
 
-            # Recurse into children
             if block.get("has_children"):
                 lines.append(self._blocks_to_text(client, block["id"], depth + 1))
 
@@ -82,12 +83,14 @@ class NotionConnector(BaseConnector):
 
     def _fetch_page(self, client, page_id: str) -> Optional[Document]:
         try:
-            page = client.pages.retrieve(page_id=page_id)
+            page = self._retry(
+                lambda: client.pages.retrieve(page_id=page_id),
+                label=f"Notion.pages.retrieve({page_id})",
+            )
         except Exception as e:
             log.error(f"Notion: could not retrieve page {page_id}: {e}")
             return None
 
-        # Extract title from page properties
         title = "Untitled"
         props = page.get("properties", {})
         for prop in props.values():
@@ -115,7 +118,10 @@ class NotionConnector(BaseConnector):
     def _fetch_database(self, client, db_id: str) -> List[Document]:
         docs = []
         try:
-            results = client.databases.query(database_id=db_id)
+            results = self._retry(
+                lambda: client.databases.query(database_id=db_id),
+                label=f"Notion.databases.query({db_id})",
+            )
         except Exception as e:
             log.error(f"Notion: could not query database {db_id}: {e}")
             return docs
@@ -127,10 +133,12 @@ class NotionConnector(BaseConnector):
         return docs
 
     def _search_all(self, client) -> List[Document]:
-        """If no specific IDs given, search all pages the integration can access."""
         docs = []
         try:
-            results = client.search(filter={"property": "object", "value": "page"})
+            results = self._retry(
+                lambda: client.search(filter={"property": "object", "value": "page"}),
+                label="Notion.search",
+            )
         except Exception as e:
             log.error(f"Notion: search failed: {e}")
             return docs

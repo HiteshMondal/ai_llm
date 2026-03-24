@@ -10,7 +10,7 @@ UI_PORT="${UI_PORT:-7860}"
 
 SUPPORTED_EXTS=("txt" "md")
 
-# Helpers
+#  Helpers 
 
 activate_venv() {
     if [ -f ".venv/bin/activate" ]; then
@@ -35,7 +35,7 @@ encode_json_string() {
         | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))"
 }
 
-# Install Ollama
+#  Install Ollama 
 
 install_ollama() {
     if command -v ollama &>/dev/null; then
@@ -51,10 +51,9 @@ install_ollama() {
     echo "✅ Ollama installed: $(ollama --version)"
 }
 
-# Setup
+#  Setup 
 
 cmd_setup() {
-
     echo "==> Creating virtual environment"
     rm -rf .venv
     python3 -m venv .venv
@@ -69,19 +68,30 @@ cmd_setup() {
 
     echo "==> Installing dependencies"
     pip install -r requirements.txt
-    
+
     echo "==> Installing connector + provider dependencies"
     pip install \
         google-auth-oauthlib google-auth-httplib2 google-api-python-client \
         notion-client trafilatura PyGithub \
         langchain-google-genai langchain-groq langchain-openai
+
     echo "==> Creating directories"
     mkdir -p data/uploads
     mkdir -p data/chroma
+    mkdir -p data/embeddings
+
+    # Fix: ensure connectors live under app/connectors (not root connectors/)
+    if [ -d "connectors" ] && [ ! -d "app/connectors" ]; then
+        echo "==> Moving connectors/ → app/connectors/"
+        mv connectors app/connectors
+    elif [ -d "connectors" ] && [ -d "app/connectors" ]; then
+        echo "==> Root connectors/ found but app/connectors/ already exists — skipping move"
+    fi
 
     load_env
     EMBEDDING_PROVIDER="${EMBEDDING_PROVIDER:-local}"
     LLM_PROVIDER="${LLM_PROVIDER:-ollama}"
+    RERANKER_ENABLED="${RERANKER_ENABLED:-false}"
 
     if [ "$EMBEDDING_PROVIDER" = "local" ]; then
         echo "==> Downloading embedding model (local)"
@@ -91,6 +101,16 @@ SentenceTransformer("all-MiniLM-L6-v2")
 PY
     else
         echo "==> Skipping local embedding model (EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER})"
+    fi
+
+    if [ "$RERANKER_ENABLED" = "true" ]; then
+        echo "==> Downloading re-ranker model"
+        python3 - <<'PY'
+from sentence_transformers import CrossEncoder
+CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+PY
+    else
+        echo "==> Skipping re-ranker model (set RERANKER_ENABLED=true in .env to enable)"
     fi
 
     if [ "$LLM_PROVIDER" = "ollama" ]; then
@@ -112,10 +132,9 @@ PY
     echo "✅ Setup complete"
 }
 
-# Start API + UI
+#  Start API + UI 
 
 cmd_start() {
-
     load_env
     activate_venv
 
@@ -125,8 +144,10 @@ cmd_start() {
         echo "  Consider using a free API provider (Gemini/Groq) instead"
         echo "  Set LLM_PROVIDER=gemini and GEMINI_API_KEY in .env"
     fi
-    
+
     LLM_PROVIDER="${LLM_PROVIDER:-ollama}"
+    OLLAMA_PID=""
+
     if [ "$LLM_PROVIDER" = "ollama" ]; then
         install_ollama
         OLLAMA_URL="${OLLAMA_BASE_URL:-http://localhost:11434}"
@@ -153,40 +174,30 @@ cmd_start() {
         done
     else
         echo "[run] Skipping Ollama (LLM_PROVIDER=${LLM_PROVIDER})"
-        OLLAMA_PID=""
     fi
 
     echo "[run] Starting FastAPI http://${APP_HOST}:${APP_PORT}"
-
     uvicorn app.main:app \
         --host "$APP_HOST" \
         --port "$APP_PORT" &
-
     API_PID=$!
 
     echo "[run] Starting Gradio http://0.0.0.0:${UI_PORT}"
-
     python -m app.ui &
-
     UI_PID=$!
 
     trap 'echo ""; echo "[run] stopping..."; kill $API_PID $UI_PID ${OLLAMA_PID:-} 2>/dev/null; exit 0' INT TERM
 
     echo "[run] running (Ctrl+C to stop)"
-
     wait
 }
 
-# Chat helper
+#  Chat helper 
 
 cmd_chat() {
-
     activate_venv
-
     QUESTION="$1"
-
     JSON=$(encode_json_string "$QUESTION")
-
     curl -s \
         -X POST \
         "http://${APP_HOST}:${APP_PORT}/chat" \
@@ -195,12 +206,10 @@ cmd_chat() {
         | python3 -m json.tool
 }
 
-# Ingest helper
+#  Ingest helper 
 
 cmd_ingest() {
-
     activate_venv
-
     API_URL="http://${APP_HOST}:${APP_PORT}/ingest"
 
     if [ $# -eq 0 ]; then
@@ -210,26 +219,19 @@ cmd_ingest() {
     fi
 
     ingest_file() {
-
         FILE="$1"
-
         EXT="${FILE##*.}"
-
         VALID=false
-
         for e in "${SUPPORTED_EXTS[@]}"; do
             if [ "$EXT" = "$e" ]; then
                 VALID=true
             fi
         done
-
         if [ "$VALID" = false ]; then
             echo "[skip] $FILE"
             return
         fi
-
         echo "[upload] $FILE"
-
         curl \
             -s \
             -X POST \
@@ -238,34 +240,24 @@ cmd_ingest() {
     }
 
     for TARGET in "$@"; do
-
         if [ -f "$TARGET" ]; then
-
             ingest_file "$TARGET"
-
         elif [ -d "$TARGET" ]; then
-
             find "$TARGET" \
                 -type f \
                 \( -name "*.txt" -o -name "*.md" \) \
                 | while read -r FILE; do
-
                 ingest_file "$FILE"
-
             done
-
         else
-
             echo "[warn] not found: $TARGET"
-
         fi
-
     done
 
     echo "✅ ingest complete"
 }
 
-# CLI
+#  CLI 
 
 case "${1:-help}" in
 
@@ -290,15 +282,23 @@ ingest)
 help|--help)
     echo ""
     echo "Usage:"
-    echo "bash run.sh setup"
-    echo "bash run.sh start"
-    echo "bash run.sh chat \"question\""
-    echo "bash run.sh ingest file.txt"
+    echo "  bash run.sh setup              Install dependencies and models"
+    echo "  bash run.sh start              Start API + UI"
+    echo "  bash run.sh chat \"question\"    Ask a question via CLI"
+    echo "  bash run.sh ingest file.txt    Ingest a file or directory"
+    echo ""
+    echo "Environment variables (set in .env):"
+    echo "  LLM_PROVIDER        ollama | gemini | groq | openrouter | openai"
+    echo "  EMBEDDING_PROVIDER  local | gemini | openai"
+    echo "  RERANKER_ENABLED    true | false  (default: false)"
+    echo "  APP_PORT            API port      (default: 8000)"
+    echo "  UI_PORT             UI port       (default: 7860)"
     echo ""
     ;;
 
 *)
-    echo "Unknown command"
+    echo "Unknown command: ${1}"
+    echo "Run 'bash run.sh help' for usage."
     exit 1
     ;;
 

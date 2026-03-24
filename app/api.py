@@ -1,36 +1,34 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pathlib import Path
 import shutil
 import mimetypes
+import json
 
 from app.config import get_settings
 from app.logger import get_logger
-from app.rag import query, ingest_documents
-from app.ingest import (
-    load_file,
-    clean_documents,
-    chunk_documents,
-)
+from app.rag import query, stream_query, ingest_documents, get_document_preview
+from app.ingest import load_file, clean_documents, chunk_documents
 
 settings = get_settings()
-
 log = get_logger(__name__)
 
 
-# HEALTH ROUTER
+#  Health 
 
 health = APIRouter()
 
 
 @health.get("/health")
 def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "2.0.0"}
 
 
-# CHAT ROUTER
+#  Chat 
 
 chat = APIRouter()
+
 
 class ChatRequest(BaseModel):
     question: str
@@ -39,18 +37,59 @@ class ChatRequest(BaseModel):
     provider: str = ""
     model: str = ""
     api_key: str = ""
+    history: list[dict] = []        # [{role: "user"|"assistant", content: "..."}]
+
 
 @chat.post("/chat")
 def chat_endpoint(req: ChatRequest):
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question empty")
     return query(
-        req.question, req.k, req.system_instruction,
-        provider=req.provider, model=req.model, api_key=req.api_key,
+        req.question,
+        req.k,
+        req.system_instruction,
+        provider=req.provider,
+        model=req.model,
+        api_key=req.api_key,
+        history=req.history or [],
     )
 
 
-# INGEST ROUTER
+@chat.post("/chat/stream")
+def chat_stream_endpoint(req: ChatRequest):
+    """Server-Sent Events streaming endpoint."""
+    if not req.question.strip():
+        raise HTTPException(status_code=400, detail="Question empty")
+
+    def _generate():
+        try:
+            for token in stream_query(
+                req.question,
+                req.k,
+                req.system_instruction,
+                provider=req.provider,
+                model=req.model,
+                api_key=req.api_key,
+                history=req.history or [],
+            ):
+                yield f"data: {json.dumps({'token': token})}\n\n"
+        except Exception as e:
+            log.error(f"Stream error: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+#  Ingest 
 
 ingest = APIRouter()
 
@@ -66,49 +105,56 @@ async def ingest_endpoint(file: UploadFile = File(...)):
     with dest.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # If no extension, try to detect it
+    # Auto-detect extension if missing
     if not dest.suffix:
         mime = file.content_type or mimetypes.guess_type(filename)[0] or ""
         if "markdown" in mime or filename.lower().endswith("md"):
             dest = dest.rename(dest.with_suffix(".md"))
         else:
-            # Try reading as plain text as fallback
             try:
                 dest.read_text(encoding="utf-8", errors="strict")
                 dest = dest.rename(dest.with_suffix(".txt"))
             except Exception:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Cannot determine file type for '{filename}'. Add .txt or .md extension.",
+                    detail=(
+                        f"Cannot determine file type for '{filename}'. "
+                        "Add .txt or .md extension."
+                    ),
                 )
         filename = dest.name
 
     docs = load_file(dest)
     if not docs:
-        raise HTTPException(
-            status_code=400,
-            detail="Could not load file",
-        )
+        raise HTTPException(status_code=400, detail="Could not load file")
 
     docs = clean_documents(docs)
-
     chunks = chunk_documents(docs)
-
     count = ingest_documents(chunks)
 
-    return {
-        "filename": filename,
-        "chunks_ingested": count,
-    }
+    return {"filename": filename, "chunks_ingested": count}
 
-# MANAGE ROUTER
+
+#  Manage 
 
 manage = APIRouter()
+
 
 @manage.get("/documents")
 def list_docs():
     from app.rag import list_documents
     return {"documents": list_documents()}
+
+
+@manage.get("/documents/{source}/preview")
+def preview_doc(source: str, max_chars: int = Query(default=2000, le=10000)):
+    from urllib.parse import unquote
+    source = unquote(source)
+    preview = get_document_preview(source, max_chars=max_chars)
+    if not preview:
+        raise HTTPException(status_code=404, detail=f"No document found: {source}")
+    return {"source": source, "preview": preview}
+
 
 @manage.delete("/documents/{source}")
 def delete_doc(source: str):
@@ -118,14 +164,14 @@ def delete_doc(source: str):
     deleted = delete_documents(source)
     if deleted == 0:
         raise HTTPException(status_code=404, detail=f"No document found: {source}")
-    # Remove uploaded file if exists
     file_path = UPLOAD_DIR / source
     if file_path.exists():
         file_path.unlink()
     return {"deleted_chunks": deleted, "source": source}
 
 
-# SOURCES ROUTER
+#  Sources 
+
 sources = APIRouter()
 
 class GDriveRequest(BaseModel):
@@ -135,15 +181,15 @@ class GDriveRequest(BaseModel):
 
 class NotionRequest(BaseModel):
     token: str
-    page_ids: str = ""        # comma-separated
-    database_ids: str = ""    # comma-separated
+    page_ids: str = ""
+    database_ids: str = ""
 
 class WebRequest(BaseModel):
-    urls: str                 # comma or newline separated
+    urls: str
 
 class GithubRequest(BaseModel):
     token: str
-    repos: str                # comma-separated owner/repo
+    repos: str
     branch: str = ""
 
 def _run_connector(connector) -> dict:
@@ -156,6 +202,7 @@ def _run_connector(connector) -> dict:
     count = ingest_documents(chunks)
     return {"documents_fetched": len(docs), "chunks_ingested": count}
 
+
 @sources.post("/sources/ingest/gdrive")
 def ingest_gdrive(req: GDriveRequest):
     from app.connectors import GDriveConnector
@@ -166,6 +213,7 @@ def ingest_gdrive(req: GDriveRequest):
     )
     return _run_connector(connector)
 
+
 @sources.post("/sources/ingest/notion")
 def ingest_notion(req: NotionRequest):
     from app.connectors import NotionConnector
@@ -173,9 +221,10 @@ def ingest_notion(req: NotionRequest):
     if not token:
         raise HTTPException(status_code=400, detail="Notion token required")
     page_ids = [p.strip() for p in req.page_ids.split(",") if p.strip()]
-    db_ids   = [d.strip() for d in req.database_ids.split(",") if d.strip()]
+    db_ids = [d.strip() for d in req.database_ids.split(",") if d.strip()]
     connector = NotionConnector(token=token, page_ids=page_ids, database_ids=db_ids)
     return _run_connector(connector)
+
 
 @sources.post("/sources/ingest/web")
 def ingest_web(req: WebRequest):
@@ -186,6 +235,7 @@ def ingest_web(req: WebRequest):
         raise HTTPException(status_code=400, detail="No URLs provided")
     connector = WebConnector(urls=urls)
     return _run_connector(connector)
+
 
 @sources.post("/sources/ingest/github")
 def ingest_github(req: GithubRequest):

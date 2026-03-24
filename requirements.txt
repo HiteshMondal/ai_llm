@@ -9,7 +9,7 @@ langchain-ollama==0.2.3
 langchain-huggingface>=0.1.2,<0.2
 langchain-chroma>=0.1.2,<0.2
 
-# Embeddings (local, no API key)
+# Embeddings + Re-ranking (local, no API key)
 sentence-transformers>=2.7.0,<3
 
 # Vector store

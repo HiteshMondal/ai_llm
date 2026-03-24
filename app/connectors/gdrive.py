@@ -27,13 +27,11 @@ log = get_logger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
-# MIME types we can export as plain text
 EXPORTABLE = {
-    "application/vnd.google-apps.document":       "text/plain",
-    "application/vnd.google-apps.spreadsheet":    "text/csv",
-    "application/vnd.google-apps.presentation":   "text/plain",
+    "application/vnd.google-apps.document":     "text/plain",
+    "application/vnd.google-apps.spreadsheet":  "text/csv",
+    "application/vnd.google-apps.presentation": "text/plain",
 }
-# Native Drive files we can download directly
 DOWNLOADABLE_MIME = {
     "text/plain",
     "text/markdown",
@@ -72,12 +70,15 @@ class GDriveConnector(BaseConnector):
 
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
+                self._retry(
+                    lambda: creds.refresh(Request()),
+                    label="GDrive.refresh_token",
+                )
             else:
                 if not self.credentials_file.exists():
                     raise FileNotFoundError(
                         f"credentials.json not found at {self.credentials_file}.\n"
-                        "Download it from Google Cloud Console → APIs & Services → Credentials."
+                        "Download from Google Cloud Console → APIs & Services → Credentials."
                     )
                 flow = InstalledAppFlow.from_client_secrets_file(
                     str(self.credentials_file), SCOPES
@@ -92,22 +93,23 @@ class GDriveConnector(BaseConnector):
         if self.folder_id:
             query += f" and '{self.folder_id}' in parents"
 
-        mime_conditions = (
-            " or ".join(
-                [f"mimeType='{m}'" for m in EXPORTABLE]
-                + [f"mimeType='{m}'" for m in DOWNLOADABLE_MIME]
-            )
+        mime_conditions = " or ".join(
+            [f"mimeType='{m}'" for m in EXPORTABLE]
+            + [f"mimeType='{m}'" for m in DOWNLOADABLE_MIME]
         )
         query += f" and ({mime_conditions})"
 
         files, page_token = [], None
         while True:
-            resp = service.files().list(
-                q=query,
-                pageSize=100,
-                fields="nextPageToken, files(id, name, mimeType, modifiedTime)",
-                pageToken=page_token,
-            ).execute()
+            resp = self._retry(
+                lambda pt=page_token: service.files().list(
+                    q=query,
+                    pageSize=100,
+                    fields="nextPageToken, files(id, name, mimeType, modifiedTime)",
+                    pageToken=pt,
+                ).execute(),
+                label="GDrive.files.list",
+            )
             files.extend(resp.get("files", []))
             page_token = resp.get("nextPageToken")
             if not page_token:
@@ -120,7 +122,7 @@ class GDriveConnector(BaseConnector):
         file_id = file_meta["id"]
         mime = file_meta["mimeType"]
 
-        try:
+        def _do_download():
             if mime in EXPORTABLE:
                 export_mime = EXPORTABLE[mime]
                 req = service.files().export_media(fileId=file_id, mimeType=export_mime)
@@ -133,8 +135,14 @@ class GDriveConnector(BaseConnector):
             while not done:
                 _, done = dl.next_chunk()
             return buf.getvalue().decode("utf-8", errors="ignore")
+
+        try:
+            return self._retry(
+                _do_download,
+                label=f"GDrive.download({file_meta['name']})",
+            )
         except Exception as e:
-            log.error(f"Failed to download '{file_meta['name']}': {e}")
+            log.error(f"GDrive: failed to download '{file_meta['name']}': {e}")
             return None
 
     def fetch(self) -> List[Document]:
@@ -151,11 +159,11 @@ class GDriveConnector(BaseConnector):
             docs.append(Document(
                 page_content=text,
                 metadata={
-                    "source":       f["name"],
-                    "source_type":  "gdrive",
-                    "drive_id":     f["id"],
-                    "modified_at":  f.get("modifiedTime", ""),
-                    "fetched_at":   self._now(),
+                    "source":      f["name"],
+                    "source_type": "gdrive",
+                    "drive_id":    f["id"],
+                    "modified_at": f.get("modifiedTime", ""),
+                    "fetched_at":  self._now(),
                 },
             ))
             log.info(f"GDrive: fetched '{f['name']}' ({len(text)} chars)")

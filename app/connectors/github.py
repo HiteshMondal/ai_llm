@@ -5,20 +5,10 @@ Fetches readable files (.md, .txt, .rst, .py, .js, .ts, etc.)
 from one or more GitHub repositories.
 
 Required package:  pip install PyGithub
-
 Required env var:
-  GITHUB_TOKEN   your personal access token (PAT)
-                 Scopes needed: repo (for private) or public_repo (for public)
+  GITHUB_TOKEN   personal access token (PAT)
+                 Scopes needed: repo (private) or public_repo (public)
                  Create at: https://github.com/settings/tokens
-
-Usage:
-    connector = GithubConnector(
-        token="ghp_xxx",
-        repos=["owner/repo1", "owner/repo2"],
-        branch="main",           # optional, defaults to repo default branch
-        max_file_size_kb=500,    # skip large files
-    )
-    docs = connector.fetch()
 """
 
 from typing import List, Optional
@@ -61,8 +51,12 @@ class GithubConnector(BaseConnector):
 
     def _fetch_repo(self, client, repo_name: str) -> List[Document]:
         docs = []
+
         try:
-            repo = client.get_repo(repo_name)
+            repo = self._retry(
+                lambda: client.get_repo(repo_name),
+                label=f"GitHub.get_repo({repo_name})",
+            )
         except Exception as e:
             log.error(f"GitHub: could not access repo '{repo_name}': {e}")
             return docs
@@ -71,7 +65,10 @@ class GithubConnector(BaseConnector):
         log.info(f"GitHub: scanning '{repo_name}' @ branch '{branch}'")
 
         try:
-            contents = repo.get_git_tree(branch, recursive=True).tree
+            contents = self._retry(
+                lambda: repo.get_git_tree(branch, recursive=True).tree,
+                label=f"GitHub.get_git_tree({repo_name})",
+            )
         except Exception as e:
             log.error(f"GitHub: could not get tree for '{repo_name}': {e}")
             return docs
@@ -89,7 +86,10 @@ class GithubConnector(BaseConnector):
                 continue
 
             try:
-                file_content = repo.get_contents(path, ref=branch)
+                file_content = self._retry(
+                    lambda p=path: repo.get_contents(p, ref=branch),
+                    label=f"GitHub.get_contents({path})",
+                )
                 text = file_content.decoded_content.decode("utf-8", errors="ignore")
             except Exception as e:
                 log.error(f"GitHub: failed to read '{path}': {e}")
@@ -120,5 +120,8 @@ class GithubConnector(BaseConnector):
         for repo_name in self.repos:
             repo_docs = self._fetch_repo(client, repo_name)
             docs.extend(repo_docs)
-        log.info(f"GitHub: total {len(docs)} file(s) fetched from {len(self.repos)} repo(s)")
+        log.info(
+            f"GitHub: total {len(docs)} file(s) fetched "
+            f"from {len(self.repos)} repo(s)"
+        )
         return docs

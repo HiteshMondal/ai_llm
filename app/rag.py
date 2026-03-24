@@ -1,18 +1,27 @@
-from functools import lru_cache
-from typing import List, Dict, Any
+import hashlib
+import time
+import asyncio
+import threading
+import re
+import torch
 
+from functools import lru_cache
+from typing import List, Dict, Any, Iterator, Optional
+from langchain_core.messages import HumanMessage
 from langchain.schema import Document
 from langchain.prompts import PromptTemplate
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import ChatOllama
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.chains.retrieval import create_retrieval_chain
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.embeddings import Embeddings
 
 from app.config import get_settings
 from app.logger import get_logger
+
+_lock = threading.Lock()
+log = get_logger(__name__)
+settings = get_settings()
 
 PROVIDER_MODELS = {
     "ollama":     "tinyllama",
@@ -20,35 +29,107 @@ PROVIDER_MODELS = {
     "groq":       "llama3-8b-8192",
     "openrouter": "mistralai/mistral-7b-instruct:free",
     "openai":     "gpt-3.5-turbo",
-    "phi3":       "mini",
 }
 
-settings = get_settings()
-log = get_logger(__name__)
 
-
-# Prompt Template
+#  Prompt 
 
 PROMPT = PromptTemplate(
-    input_variables=["context", "input", "system_instruction"],
+    input_variables=["context", "input", "system_instruction", "chat_history"],
     template=(
         "{system_instruction}\n\n"
-        "Use the context below to answer the question.\n"
-        "If you don't know, say 'I don't know'.\n\n"
+        "{chat_history}"
+        "Use retrieved context when relevant.\n"
+        "If context is not relevant, answer normally.\n\n"
         "Context:\n{context}\n\n"
         "Question: {input}\n"
         "Answer:"
     ),
 )
 
-DEFAULT_INSTRUCTION = "You are a helpful assistant. Answer based on the provided context."
+DEFAULT_INSTRUCTION = """
+You are an AI assistant powered by Retrieval-Augmented Generation (RAG).
+
+Answer questions using retrieved context whenever available.
+
+If context is insufficient:
+
+say "I don't know".
+
+Prefer structured responses.
+
+When answering technical questions:
+
+explain architecture step-by-step
+
+avoid speculation
+
+reference system components when relevant
+"""
 
 
-# Embedding Model
+#  Query Cache 
+
+class _QueryCache:
+    """Simple TTL-aware in-memory cache keyed on query hash."""
+
+    def __init__(self, ttl: int, max_size: int):
+        self._ttl = ttl
+        self._max = max_size
+        self._store: Dict[str, tuple[float, Any]] = {}
+        self._lock = threading.Lock()
+
+    def _key(self, question: str, instruction: str, k: int, provider: str, model: str) -> str:
+        raw = f"{question}|{instruction}|{k}|{provider}|{model}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get(self, question, instruction, k, provider, model):
+
+        key = self._key(question, instruction, k, provider, model)
+
+        with self._lock:
+            entry = self._store.get(key)
+
+            if entry is None:
+                return None
+
+            ts, value = entry
+
+            if time.time() - ts > self._ttl:
+                del self._store[key]
+                return None
+
+            return value
+
+    def set(self, question, instruction, k, provider, model, value):
+
+        key = self._key(question, instruction, k, provider, model)
+
+        with self._lock:
+
+            if len(self._store) >= self._max:
+                oldest = min(self._store, key=lambda k: self._store[k][0])
+                del self._store[oldest]
+
+            self._store[key] = (time.time(), value)
+
+    def invalidate_all(self):
+
+        with self._lock:
+            self._store.clear()
+
+
+_cache = _QueryCache(
+    ttl=settings.query_cache_ttl_seconds,
+    max_size=settings.query_cache_max_size,
+)
+
+
+#  Embeddings 
 
 @lru_cache
 def get_embedder() -> Embeddings:
-    provider = settings.embedding_provider.lower()
+    provider = (settings.embedding_provider or "").lower()
 
     if provider == "gemini":
         try:
@@ -58,7 +139,7 @@ def get_embedder() -> Embeddings:
         key = settings.gemini_api_key
         if not key:
             raise ValueError("GEMINI_API_KEY required for gemini embeddings")
-        log.info("Loading embeddings: Gemini (API, no local model)")
+        log.info("Loading embeddings: Gemini")
         return GoogleGenerativeAIEmbeddings(
             model="models/text-embedding-004",
             google_api_key=key,
@@ -66,20 +147,22 @@ def get_embedder() -> Embeddings:
 
     if provider == "openai":
         from langchain_openai import OpenAIEmbeddings
-        log.info("Loading embeddings: OpenAI (API, no local model)")
+        log.info("Loading embeddings: OpenAI")
         return OpenAIEmbeddings(api_key=settings.openai_api_key)
 
-    # Default: local HuggingFace (needs ~500MB RAM)
     log.info(f"Loading embeddings: local {settings.embedding_model}")
     from langchain_huggingface import HuggingFaceEmbeddings
     return HuggingFaceEmbeddings(
         model_name=settings.embedding_model,
         model_kwargs={"device": "cpu"},
-        encode_kwargs={"normalize_embeddings": True},
+        encode_kwargs={
+            "normalize_embeddings": True,
+            "batch_size": settings.ingest_batch_size,
+        },
     )
 
 
-# LLM Model
+#  LLM 
 
 def get_llm(
     provider: str = "",
@@ -143,44 +226,128 @@ def get_llm(
             temperature=settings.llm_temperature,
         )
 
-    # Default: Ollama (local, no key needed)
     return ChatOllama(
-        model=model or settings.llm_model,
+        model=model or settings.llm_model or PROVIDER_MODELS["ollama"],
         base_url=settings.llm_base_url,
         temperature=settings.llm_temperature,
     )
 
 
-# Vector Store
+#  Vector Store 
+
+_vector_store = None
+_vector_lock = threading.Lock()
+
+def get_vector_store():
+
+    global _vector_store
+
+    if _vector_store is None:
+
+        with _vector_lock:
+
+            if _vector_store is None:
+
+                _vector_store = Chroma(
+                    collection_name=settings.vector_collection_name,
+                    embedding_function=get_embedder(),
+                    persist_directory=settings.chroma_persist_dir,
+                )
+
+    return _vector_store
+
+
+#  Re-ranker 
 
 @lru_cache
-def get_vector_store() -> Chroma:
+def _get_reranker():
+    """Load cross-encoder re-ranker (lazy, cached)."""
+    try:
+        from sentence_transformers import CrossEncoder
+    except ImportError:
+        raise ImportError("pip install sentence-transformers")
+    log.info(f"Loading re-ranker: {settings.reranker_model}")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    return CrossEncoder(settings.reranker_model, device=device)
 
-    return Chroma(
-        collection_name=settings.vector_collection_name,
-        embedding_function=get_embedder(),
-        persist_directory=settings.chroma_persist_dir,
-    )
+
+def rerank_documents(question: str, docs: List[Document]) -> List[Document]:
+    """Re-rank retrieved docs using a cross-encoder. Falls back gracefully."""
+    if not settings.reranker_enabled or not docs:
+        return docs
+    try:
+        reranker = _get_reranker()
+        pairs = [(question, doc.page_content) for doc in docs]
+        scores = reranker.predict(pairs)
+        ranked = sorted(zip(scores, docs), key=lambda x: x[0], reverse=True)
+        return [doc for _, doc in ranked[: settings.reranker_top_n]]
+    except Exception as e:
+        log.warning(f"Re-ranking failed, using original order: {e}")
+        return docs
 
 
-# Ingestion
+#  Session Memory 
+
+def format_history(history: List[Dict[str, str]]) -> str:
+    """Convert chat history list into a context string for the prompt."""
+    if not history:
+        return ""
+    lines = ["Previous conversation:"]
+    for turn in history[-(settings.session_memory_turns * 2):]:
+        role = turn.get("role", "user").capitalize()
+        content = turn.get("content", "")
+        lines.append(f"{role}: {content}")
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+#  Batch Ingestion 
 
 def ingest_documents(docs: List[Document]) -> int:
-
+    """Ingest documents in batches to avoid memory spikes."""
     if not docs:
         log.warning("No documents to ingest.")
         return 0
 
     vs = get_vector_store()
+    batch_size = settings.ingest_batch_size
+    total = 0
 
-    vs.add_documents(docs)
+    for i in range(0, len(docs), batch_size):
+        batch = docs[i: i + batch_size]
+        vs.add_documents(batch)
+        total += len(batch)
+        log.info(f"Ingested batch {i // batch_size + 1}: {len(batch)} chunk(s)")
+    vs.persist()
 
-    log.info(f"Ingested {len(docs)} chunk(s).")
+    # Invalidate cache after new ingestion
+    _cache.invalidate_all()
+    log.info(f"Total ingested: {total} chunk(s). Query cache cleared.")
+    list_documents.cache_clear()
+    return total
 
-    return len(docs)
+#  Retrieval
 
+def should_use_retrieval(question: str) -> bool:
 
-# Query Pipeline
+    q = question.lower().strip()
+
+    # remove punctuation
+    q_clean = re.sub(r"[^\w\s]", "", q)
+
+    casual = {"hi", "hello", "hey", "thanks", "ok", "yo"}
+
+    # single-word non-technical prompts
+    if len(q_clean.split()) == 1 and q_clean in casual:
+        return False
+
+    # arithmetic detection
+    if re.fullmatch(r"\d+\s*[-+*/]\s*\d+", q_clean):
+        return False
+
+    return True
+
+#  Query Pipeline 
 
 def query(
     question: str,
@@ -189,52 +356,222 @@ def query(
     provider: str = "",
     model: str = "",
     api_key: str = "",
+    history: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
-    log.info(f"Query received: {question}")
-    instruction = system_instruction.strip() or DEFAULT_INSTRUCTION
-    retriever = get_vector_store().as_retriever(search_kwargs={"k": k})
+
+    log.info(f"Query: {question!r}")
     llm = get_llm(provider=provider, model=model, api_key=api_key)
+    instruction = system_instruction.strip() or DEFAULT_INSTRUCTION
+    eff_provider = (provider or settings.llm_provider).lower().strip()
+    eff_model = model or PROVIDER_MODELS.get(eff_provider, "")
+
+    # Cache lookup
+    if not history:
+        cached = _cache.get(question, instruction, k, eff_provider, eff_model)
+        if cached is not None:
+            log.info("Cache hit — returning cached answer")
+            cached_copy = cached.copy()
+            cached_copy["cached"] = True
+            return cached_copy
+
+    chat_history_str = format_history(history or [])
+
+
+    # Retrieval gating
+    if should_use_retrieval(question):
+
+        retriever = get_vector_store().as_retriever(
+            search_kwargs={"k": max(k * 2, settings.reranker_top_n)}
+        )
+
+        raw_docs = retriever.invoke(question)
+
+        final_docs = rerank_documents(question, raw_docs)[:k]
+
+    else:
+        final_docs = []
+
+    # Fallback: normal chatbot mode
+    if not final_docs:
+
+        log.info("No relevant docs — using direct LLM response")
+
+        answer = llm.invoke([
+            HumanMessage(
+                content=f"{instruction}\n\n{chat_history_str}\nUser question:\n{question}"
+            )
+        ])
+
+        response = {
+            "answer": answer.content,
+            "sources": [],
+            "cached": False,
+            "reranked": False,
+        }
+
+        if not history:
+            _cache.set(question, instruction, k, eff_provider, eff_model, response)
+
+        return response
+
+    # RAG mode
+
     document_chain = create_stuff_documents_chain(llm, PROMPT)
-    chain = create_retrieval_chain(retriever, document_chain).with_config({"run_name": "rag_chain"})
-    result = chain.invoke({"input": question, "system_instruction": instruction})
-    return {
-        "answer": result.get("answer", ""),
+
+    result = document_chain.invoke({
+        "context": final_docs,
+        "input": question,
+        "system_instruction": instruction,
+        "chat_history": chat_history_str,
+    })
+
+    response = {
+        "answer": result,
         "sources": [
-            {"content": doc.page_content, "metadata": doc.metadata}
-            for doc in result.get("context", [])
+            {
+                "content": doc.page_content,
+                "metadata": doc.metadata,
+            }
+            for doc in final_docs
         ],
+        "cached": False,
+        "reranked": settings.reranker_enabled,
     }
 
-# List all documents
+    if not history:
+        _cache.set(question, instruction, k, eff_provider, eff_model, response)
+
+    return response
+
+def stream_query(
+    question: str,
+    k: int = 4,
+    system_instruction: str = "",
+    provider: str = "",
+    model: str = "",
+    api_key: str = "",
+    history: Optional[List[Dict[str, str]]] = None,
+) -> Iterator[str]:
+    """Streaming RAG query — yields text tokens as they arrive."""
+    log.info(f"Stream query: {question!r}")
+    instruction = system_instruction.strip() or DEFAULT_INSTRUCTION
+    chat_history_str = format_history(history or [])
+
+    # Retrieval + re-ranking
+    if should_use_retrieval(question):
+        retriever = get_vector_store().as_retriever(
+            search_kwargs={"k": max(k * 2, settings.reranker_top_n)}
+        )
+        raw_docs = retriever.invoke(question)
+        final_docs = rerank_documents(question, raw_docs)[:k]
+    else:
+
+        final_docs = []
+
+    context_str = "\n\n".join(d.page_content for d in final_docs if d.page_content)
+
+    if not final_docs:
+
+        log.info("No relevant docs — streaming direct LLM response")
+
+        llm = get_llm(provider=provider, model=model, api_key=api_key)
+
+        for chunk in llm.stream([
+                         HumanMessage(
+                             content=f"{instruction}\n\n{chat_history_str}\nUser question:\n{question}"
+                         )
+                     ]):
+
+            token = chunk.content if hasattr(chunk, "content") else str(chunk)
+
+            if token:
+                yield token
+
+        return
+
+
+    prompt_text = PROMPT.format(
+        system_instruction=instruction,
+        chat_history=chat_history_str,
+        context=context_str,
+        input=question,
+    )
+
+    llm = get_llm(provider=provider, model=model, api_key=api_key)
+
+    for chunk in llm.stream([HumanMessage(content=prompt_text)]):
+        token = chunk.content if hasattr(chunk, "content") else str(chunk)
+        if token:
+            if settings.stream_chunk_delay > 0:
+                time.sleep(settings.stream_chunk_delay)
+            yield token
+
+    # Yield sources as a JSON sentinel at the end
+    import json
+    sources_payload = json.dumps({
+        "__sources__": [
+            {"content": doc.page_content, "metadata": doc.metadata}
+            for doc in final_docs
+        ]
+    })
+    yield f"\n\n{sources_payload}"
+
+
+#  Document Management 
+@lru_cache(maxsize=1)
 
 def list_documents() -> List[Dict[str, Any]]:
     vs = get_vector_store()
     result = vs.get(include=["metadatas"])
-    seen = {}
-    for i, meta in enumerate(result["metadatas"]):
+    seen: Dict[str, Dict] = {}
+    for i, meta in enumerate(result.get("metadatas", [])):
         source = meta.get("source", "unknown")
         doc_id = result["ids"][i]
         if source not in seen:
-            seen[source] = {"source": source, "ids": []}
+            seen[source] = {
+                "source": source,
+                "ids": [],
+                "source_type": meta.get("source_type", "local"),
+            }
         seen[source]["ids"].append(doc_id)
     return [
-        {"source": s, "chunk_count": len(v["ids"])}
+        {
+            "source": s,
+            "chunk_count": len(v["ids"]),
+            "source_type": v["source_type"],
+        }
         for s, v in seen.items()
     ]
 
-# Delete documents by source filename
+
+def get_document_preview(source: str, max_chars: int = 2000) -> str:
+    """Return a text preview of an ingested document by source name."""
+    vs = get_vector_store()
+    result = vs.get(where={"source": source}, include=["documents"])
+    chunks = [
+        result.get("documents", [])[i]
+        for i, meta in enumerate(result.get("metadatas", []))
+        if meta.get("source") == source
+    ]
+    if not chunks:
+        return ""
+    full_text = "\n\n---\n\n".join(chunks)
+    return full_text[:max_chars] + ("…" if len(full_text) > max_chars else "")
+
 
 def delete_documents(source: str) -> int:
     vs = get_vector_store()
     result = vs.get(include=["metadatas"])
     ids_to_delete = [
         result["ids"][i]
-        for i, meta in enumerate(result["metadatas"])
+        for i, meta in enumerate(result.get("metadatas", []))
         if meta.get("source") == source
     ]
     if not ids_to_delete:
         log.warning(f"No chunks found for source: {source}")
         return 0
     vs.delete(ids=ids_to_delete)
+    list_documents.cache_clear()
+    _cache.invalidate_all()
     log.info(f"Deleted {len(ids_to_delete)} chunk(s) for '{source}'")
     return len(ids_to_delete)

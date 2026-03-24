@@ -5,18 +5,14 @@ Fetches one or more URLs, extracts clean article text using trafilatura,
 and returns them as Documents.
 
 Required package:  pip install trafilatura httpx
-
-Usage:
-    connector = WebConnector(urls=["https://example.com/article"])
-    docs = connector.fetch()
 """
 
 from typing import List
 
 import httpx
-
 from langchain.schema import Document
 
+from app.config import get_settings
 from app.connectors.base import BaseConnector
 from app.logger import get_logger
 
@@ -24,7 +20,7 @@ log = get_logger(__name__)
 
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (compatible; RAGBot/1.0; +https://github.com/your/repo)"
+        "Mozilla/5.0 (compatible; RAGBot/2.0)"
     )
 }
 
@@ -33,20 +29,18 @@ class WebConnector(BaseConnector):
     def __init__(
         self,
         urls: List[str],
-        timeout: int = 30,
+        timeout: int = 0,           # 0 = use config value
         include_comments: bool = False,
         include_tables: bool = True,
     ):
+        settings = get_settings()
         self.urls = urls
-        self.timeout = timeout
+        self.timeout = timeout or settings.connector_timeout
         self.include_comments = include_comments
         self.include_tables = include_tables
 
     def _extract(self, html: str, url: str) -> tuple[str, str]:
-        """
-        Returns (title, text) extracted from raw HTML.
-        Falls back to raw HTML stripping if trafilatura finds nothing.
-        """
+        """Returns (title, text) from raw HTML using trafilatura."""
         try:
             import trafilatura
         except ImportError:
@@ -65,8 +59,16 @@ class WebConnector(BaseConnector):
         return title, result or ""
 
     def _fetch_url(self, url: str) -> Document | None:
+        def _get():
+            return httpx.get(
+                url,
+                headers=HEADERS,
+                timeout=self.timeout,
+                follow_redirects=True,
+            )
+
         try:
-            resp = httpx.get(url, headers=HEADERS, timeout=self.timeout, follow_redirects=True)
+            resp = self._retry(_get, label=f"WebConnector.fetch({url})")
             resp.raise_for_status()
         except Exception as e:
             log.error(f"Web: failed to fetch {url}: {e}")
