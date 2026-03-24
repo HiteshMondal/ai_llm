@@ -1,0 +1,398 @@
+AI RAG Assistant – Default Knowledge Base
+
+Welcome!
+
+This assistant is powered by a Retrieval-Augmented Generation (RAG) system.
+It answers questions using both a language model and a searchable knowledge base.
+
+If no user documents are uploaded yet, the assistant will answer questions using this default knowledge file.
+
+
+--------------------------------------------------
+WHAT THIS APPLICATION IS
+--------------------------------------------------
+
+This application is an AI-powered document assistant built using:
+
+- FastAPI backend
+- LangChain retrieval pipeline
+- Chroma vector database
+- SentenceTransformers embeddings
+- Multi-provider LLM support
+- Gradio web interface
+
+The assistant retrieves relevant information from stored documents and uses it as context for generating accurate answers.
+
+This approach improves factual accuracy compared to standard chatbots.
+
+
+--------------------------------------------------
+WHAT IS RAG (Retrieval-Augmented Generation)?
+--------------------------------------------------
+
+Retrieval-Augmented Generation is a technique that improves large language model responses by combining:
+
+1) Information retrieval
+2) Context injection
+3) Language model reasoning
+
+Instead of relying only on training data, the assistant:
+
+- searches stored documents
+- extracts relevant text
+- passes context into the language model
+- generates grounded responses
+
+Benefits include:
+
+- reduced hallucinations
+- improved accuracy
+- domain-specific answers
+- support for private datasets
+- support for enterprise knowledge systems
+
+
+--------------------------------------------------
+SYSTEM ARCHITECTURE OVERVIEW
+--------------------------------------------------
+
+This assistant follows a modular architecture:
+
+User Question
+        ↓
+Retriever (vector database search)
+        ↓
+Context Selection
+        ↓
+Language Model
+        ↓
+Grounded Answer
+
+Documents are stored as embeddings inside a vector database.
+
+Each document is:
+
+loaded
+cleaned
+split into chunks
+embedded
+stored
+retrieved during queries
+
+
+--------------------------------------------------
+SUPPORTED LANGUAGE MODEL PROVIDERS
+--------------------------------------------------
+
+This assistant supports multiple AI providers:
+
+Local providers:
+
+- Ollama (runs models locally)
+- TinyLlama
+- LLaMA-family models (if installed)
+
+API providers:
+
+- Google Gemini
+- Groq
+- OpenRouter
+- OpenAI
+
+Users may switch providers dynamically.
+
+
+--------------------------------------------------
+SUPPORTED EMBEDDING PROVIDERS
+--------------------------------------------------
+
+Embedding providers convert text into vector representations.
+
+Supported providers include:
+
+Local:
+
+- sentence-transformers/all-MiniLM-L6-v2
+
+Cloud:
+
+- Gemini embeddings
+- OpenAI embeddings
+
+Embeddings are stored locally in Chroma vector storage.
+
+
+--------------------------------------------------
+SUPPORTED DOCUMENT TYPES
+--------------------------------------------------
+
+Currently supported document types:
+
+- TXT files
+- Markdown files
+
+These files are automatically:
+
+loaded
+cleaned
+chunked
+embedded
+stored
+
+
+--------------------------------------------------
+SUPPORTED ONLINE DATA SOURCES
+--------------------------------------------------
+
+Documents may also be ingested from:
+
+GitHub repositories
+
+The assistant can:
+
+download files
+extract readable content
+store them as searchable knowledge
+
+Notion pages
+
+The assistant can:
+
+retrieve workspace content
+index structured knowledge
+search across pages
+
+Google Drive folders
+
+The assistant can:
+
+connect using OAuth
+retrieve files
+index documents
+
+Web URLs
+
+The assistant can:
+
+download webpage text
+extract readable content
+store knowledge
+
+
+--------------------------------------------------
+HOW DOCUMENT INGESTION WORKS
+--------------------------------------------------
+
+When a document is uploaded:
+
+Step 1
+
+The file is saved locally.
+
+Step 2
+
+Text content is extracted.
+
+Step 3
+
+Text is cleaned to remove formatting noise.
+
+Step 4
+
+Content is split into smaller chunks.
+
+Step 5
+
+Chunks are converted into embeddings.
+
+Step 6
+
+Embeddings are stored inside the vector database.
+
+After this process, the assistant can answer questions using the document.
+
+
+--------------------------------------------------
+WHAT IS A VECTOR DATABASE?
+--------------------------------------------------
+
+A vector database stores text as numerical representations called embeddings.
+
+Embeddings allow semantic search instead of keyword search.
+
+This means the assistant can understand:
+
+meaning
+intent
+context
+
+instead of matching exact words.
+
+
+--------------------------------------------------
+HOW RETRIEVAL WORKS
+--------------------------------------------------
+
+When a question is asked:
+
+1) the question is converted into an embedding
+2) the vector database finds similar document chunks
+3) the best matching chunks are selected
+4) the language model uses those chunks to generate an answer
+
+This ensures responses are grounded in stored knowledge.
+
+
+--------------------------------------------------
+WHY THIS SYSTEM IS USEFUL
+--------------------------------------------------
+
+This system can be used for:
+
+personal knowledge assistants
+developer documentation search
+research assistants
+enterprise knowledge search
+technical onboarding assistants
+customer support knowledge bots
+
+It works especially well with private datasets.
+
+
+--------------------------------------------------
+EXAMPLE QUESTIONS YOU CAN ASK
+--------------------------------------------------
+
+Try asking:
+
+What is this application?
+
+How does RAG work?
+
+Which AI providers are supported?
+
+How does document ingestion work?
+
+What is a vector database?
+
+What happens after uploading files?
+
+Can this system search GitHub repositories?
+
+Can this system read Notion pages?
+
+Can this assistant use Google Drive documents?
+
+What embeddings are used?
+
+
+--------------------------------------------------
+HOW TO GET BETTER ANSWERS
+--------------------------------------------------
+
+Upload your own documents to improve answer quality.
+
+You can upload:
+
+technical documentation
+notes
+research papers
+markdown files
+knowledge bases
+
+Once uploaded, those documents become searchable.
+
+
+--------------------------------------------------
+SYSTEM DESIGN GOALS
+--------------------------------------------------
+
+This assistant was designed to be:
+
+modular
+extensible
+provider-independent
+offline-capable
+configurable
+production-ready
+
+
+--------------------------------------------------
+ADVANCED FEATURES
+--------------------------------------------------
+
+This system supports:
+
+multiple LLM providers
+
+local embeddings
+
+remote embeddings
+
+connector-based ingestion
+
+document lifecycle management
+
+vector database persistence
+
+runtime provider switching
+
+custom system instructions
+
+
+--------------------------------------------------
+WHAT HAPPENS IF NO FILES ARE UPLOADED
+--------------------------------------------------
+
+If no documents are uploaded yet:
+
+the assistant uses this default knowledge base
+
+This ensures the assistant remains functional immediately after installation.
+
+
+--------------------------------------------------
+HOW TO IMPROVE RESULTS
+--------------------------------------------------
+
+Best practices:
+
+upload multiple documents
+
+use markdown formatting
+
+organize knowledge by topic
+
+avoid extremely large files
+
+keep documents structured
+
+
+--------------------------------------------------
+ABOUT THIS PROJECT
+--------------------------------------------------
+
+This project demonstrates:
+
+modern RAG architecture
+
+multi-provider AI integration
+
+vector database usage
+
+retrieval pipelines
+
+document ingestion systems
+
+modular connectors
+
+production-style backend design
+
+interactive web interface
+
+It is designed as a foundation for building advanced AI assistants.
+
+
+--------------------------------------------------
+END OF DEFAULT KNOWLEDGE BASE
+--------------------------------------------------

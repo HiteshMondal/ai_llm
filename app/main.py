@@ -5,7 +5,12 @@ from fastapi.responses import RedirectResponse
 from app.api import health, ingest, chat, manage, sources
 from app.config import get_settings
 from app.logger import get_logger
+from app.rag import list_documents, ingest_documents
+from app.ingest import load_file, clean_documents, chunk_documents
 
+from pathlib import Path
+
+DEFAULT_FILE = Path("data/uploads/default_knowledge.txt")
 settings = get_settings()
 log = get_logger(__name__)
 
@@ -44,6 +49,20 @@ def root():
 
 @app.on_event("startup")
 async def startup_event():
+    try:
+        docs_existing = list_documents()
+
+        if not docs_existing and DEFAULT_FILE.exists():
+            log.info("Vector DB empty — ingesting default knowledge base...")
+            docs = load_file(DEFAULT_FILE)
+            docs = clean_documents(docs)
+            chunks = chunk_documents(docs)
+            ingest_documents(chunks)
+            log.info("Default knowledge base indexed successfully.")
+
+    except Exception as e:
+        log.warning(f"Default ingestion skipped: {e}")
+
     log.info(
         f"RAG App ready | "
         f"LLM provider: {settings.llm_provider} | "

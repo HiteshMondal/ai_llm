@@ -22,7 +22,7 @@ ENV/
 .env
 !.env.example
 
-#  Data (runtime generated) 
+#  Data (runtime generated)
 data/uploads/*
 data/processed/*
 data/raw/*
@@ -30,6 +30,7 @@ data/embeddings/*
 data/cache/*
 !data/.gitkeep
 !data/uploads/.gitkeep
+!data/uploads/default_knowledge.txt
 !data/processed/.gitkeep
 !data/raw/.gitkeep
 !data/embeddings/.gitkeep
