@@ -69,29 +69,44 @@ cmd_setup() {
 
     echo "==> Installing dependencies"
     pip install -r requirements.txt
-
+    
+    echo "==> Installing connector + provider dependencies"
+    pip install \
+        google-auth-oauthlib google-auth-httplib2 google-api-python-client \
+        notion-client trafilatura PyGithub \
+        langchain-google-genai langchain-groq langchain-openai
     echo "==> Creating directories"
     mkdir -p data/uploads
     mkdir -p data/chroma
 
-    echo "==> Downloading embedding model"
-    python3 - <<'PY'
+    load_env
+    EMBEDDING_PROVIDER="${EMBEDDING_PROVIDER:-local}"
+    LLM_PROVIDER="${LLM_PROVIDER:-ollama}"
+
+    if [ "$EMBEDDING_PROVIDER" = "local" ]; then
+        echo "==> Downloading embedding model (local)"
+        python3 - <<'PY'
 from sentence_transformers import SentenceTransformer
 SentenceTransformer("all-MiniLM-L6-v2")
 PY
-
-    install_ollama
-    echo "==> Pulling tinyllama model"
-    # Start ollama serve temporarily if not running
-    if ! curl -sf http://localhost:11434 -o /dev/null 2>&1; then
-        ollama serve &>/dev/null &
-        OLLAMA_SETUP_PID=$!
-        sleep 3
+    else
+        echo "==> Skipping local embedding model (EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER})"
     fi
-    ollama pull tinyllama
-    # Stop temp serve if we started it
-    if [ -n "${OLLAMA_SETUP_PID:-}" ]; then
-        kill "$OLLAMA_SETUP_PID" 2>/dev/null || true
+
+    if [ "$LLM_PROVIDER" = "ollama" ]; then
+        install_ollama
+        echo "==> Pulling tinyllama model"
+        if ! curl -sf http://localhost:11434 -o /dev/null 2>&1; then
+            ollama serve &>/dev/null &
+            OLLAMA_SETUP_PID=$!
+            sleep 3
+        fi
+        ollama pull tinyllama
+        if [ -n "${OLLAMA_SETUP_PID:-}" ]; then
+            kill "$OLLAMA_SETUP_PID" 2>/dev/null || true
+        fi
+    else
+        echo "==> Skipping Ollama setup (LLM_PROVIDER=${LLM_PROVIDER})"
     fi
 
     echo "✅ Setup complete"
@@ -104,34 +119,42 @@ cmd_start() {
     load_env
     activate_venv
 
-    # Ensure Ollama is installed
-    install_ollama
-
-    # Start ollama serve if not already running
-    OLLAMA_URL="${OLLAMA_BASE_URL:-http://localhost:11434}"
-    if ! curl -sf "${OLLAMA_URL}" -o /dev/null 2>&1; then
-        echo "[run] Starting Ollama server..."
-        ollama serve &>/dev/null &
-        OLLAMA_PID=$!
-        echo "[run] Ollama PID: $OLLAMA_PID"
-    else
-        echo "[run] Ollama already running"
+    # Check CPU features for Ollama
+    if ! grep -qE 'avx2|avx' /proc/cpuinfo 2>/dev/null; then
+        echo "⚠ CPU may lack AVX/AVX2 — Ollama models may be very slow or crash"
+        echo "  Consider using a free API provider (Gemini/Groq) instead"
+        echo "  Set LLM_PROVIDER=gemini and GEMINI_API_KEY in .env"
     fi
-
-    # Wait for Ollama to be ready
-    echo "[run] Waiting for Ollama at ${OLLAMA_URL} ..."
-    for i in $(seq 1 15); do
-        if curl -sf "${OLLAMA_URL}" -o /dev/null 2>&1; then
-            echo "[run] Ollama is up"
-            break
+    
+    LLM_PROVIDER="${LLM_PROVIDER:-ollama}"
+    if [ "$LLM_PROVIDER" = "ollama" ]; then
+        install_ollama
+        OLLAMA_URL="${OLLAMA_BASE_URL:-http://localhost:11434}"
+        if ! curl -sf "${OLLAMA_URL}" -o /dev/null 2>&1; then
+            echo "[run] Starting Ollama server..."
+            ollama serve &>/dev/null &
+            OLLAMA_PID=$!
+            echo "[run] Ollama PID: $OLLAMA_PID"
+        else
+            echo "[run] Ollama already running"
         fi
-        if [ "$i" -eq 15 ]; then
-            echo "❌ Ollama did not start in time"
-            exit 1
-        fi
-        echo "[run] waiting... ($i/15)"
-        sleep 2
-    done
+        echo "[run] Waiting for Ollama at ${OLLAMA_URL} ..."
+        for i in $(seq 1 15); do
+            if curl -sf "${OLLAMA_URL}" -o /dev/null 2>&1; then
+                echo "[run] Ollama is up"
+                break
+            fi
+            if [ "$i" -eq 15 ]; then
+                echo "❌ Ollama did not start in time"
+                exit 1
+            fi
+            echo "[run] waiting... ($i/15)"
+            sleep 2
+        done
+    else
+        echo "[run] Skipping Ollama (LLM_PROVIDER=${LLM_PROVIDER})"
+        OLLAMA_PID=""
+    fi
 
     echo "[run] Starting FastAPI http://${APP_HOST}:${APP_PORT}"
 

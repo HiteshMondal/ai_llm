@@ -24,3 +24,16 @@ python-dotenv==1.0.1
 
 # HTTP client (UI → API calls)
 httpx==0.27.2
+
+# Online connectors
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0
+google-api-python-client>=2.130.0
+notion-client>=2.2.1
+trafilatura>=1.12.0
+PyGithub>=2.3.0
+
+# LLM providers (API-based)
+langchain-google-genai>=2.0.0
+langchain-groq>=0.2.0
+langchain-openai>=0.2.0

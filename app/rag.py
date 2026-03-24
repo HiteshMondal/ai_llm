@@ -3,16 +3,25 @@ from typing import List, Dict, Any
 
 from langchain.schema import Document
 from langchain.prompts import PromptTemplate
-
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import ChatOllama
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains.retrieval import create_retrieval_chain
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.embeddings import Embeddings
 
 from app.config import get_settings
 from app.logger import get_logger
 
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.chains.retrieval import create_retrieval_chain
+PROVIDER_MODELS = {
+    "ollama":     "tinyllama",
+    "gemini":     "gemini-2.0-flash-lite",
+    "groq":       "llama3-8b-8192",
+    "openrouter": "mistralai/mistral-7b-instruct:free",
+    "openai":     "gpt-3.5-turbo",
+    "phi3":       "mini",
+}
 
 settings = get_settings()
 log = get_logger(__name__)
@@ -38,9 +47,31 @@ DEFAULT_INSTRUCTION = "You are a helpful assistant. Answer based on the provided
 # Embedding Model
 
 @lru_cache
-def get_embedder() -> HuggingFaceEmbeddings:
-    log.info(f"Loading embeddings: {settings.embedding_model}")
+def get_embedder() -> Embeddings:
+    provider = settings.embedding_provider.lower()
 
+    if provider == "gemini":
+        try:
+            from langchain_google_genai import GoogleGenerativeAIEmbeddings
+        except ImportError:
+            raise ImportError("pip install langchain-google-genai")
+        key = settings.gemini_api_key
+        if not key:
+            raise ValueError("GEMINI_API_KEY required for gemini embeddings")
+        log.info("Loading embeddings: Gemini (API, no local model)")
+        return GoogleGenerativeAIEmbeddings(
+            model="models/text-embedding-004",
+            google_api_key=key,
+        )
+
+    if provider == "openai":
+        from langchain_openai import OpenAIEmbeddings
+        log.info("Loading embeddings: OpenAI (API, no local model)")
+        return OpenAIEmbeddings(api_key=settings.openai_api_key)
+
+    # Default: local HuggingFace (needs ~500MB RAM)
+    log.info(f"Loading embeddings: local {settings.embedding_model}")
+    from langchain_huggingface import HuggingFaceEmbeddings
     return HuggingFaceEmbeddings(
         model_name=settings.embedding_model,
         model_kwargs={"device": "cpu"},
@@ -50,15 +81,71 @@ def get_embedder() -> HuggingFaceEmbeddings:
 
 # LLM Model
 
-@lru_cache
-def get_llm() -> ChatOllama:
-    log.info(
-        f"Loading LLM: {settings.llm_model} "
-        f"@ {settings.llm_base_url}"
-    )
+def get_llm(
+    provider: str = "",
+    model: str = "",
+    api_key: str = "",
+) -> BaseChatModel:
+    provider = (provider or settings.llm_provider).lower().strip()
+    model = model or PROVIDER_MODELS.get(provider, "")
+    api_key = api_key or ""
 
+    log.info(f"Loading LLM: provider={provider} model={model}")
+
+    if provider == "gemini":
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+        except ImportError:
+            raise ImportError("pip install langchain-google-genai")
+        key = api_key or settings.gemini_api_key
+        if not key:
+            raise ValueError("GEMINI_API_KEY missing. Get a free key at https://aistudio.google.com")
+        return ChatGoogleGenerativeAI(
+            model=model,
+            google_api_key=key,
+            temperature=settings.llm_temperature,
+        )
+
+    if provider == "groq":
+        try:
+            from langchain_groq import ChatGroq
+        except ImportError:
+            raise ImportError("pip install langchain-groq")
+        key = api_key or settings.groq_api_key
+        if not key:
+            raise ValueError("GROQ_API_KEY missing. Get a free key at https://console.groq.com")
+        return ChatGroq(
+            model=model,
+            groq_api_key=key,
+            temperature=settings.llm_temperature,
+        )
+
+    if provider == "openrouter":
+        from langchain_openai import ChatOpenAI
+        key = api_key or settings.openrouter_api_key
+        if not key:
+            raise ValueError("OPENROUTER_API_KEY missing. Get one at https://openrouter.ai")
+        return ChatOpenAI(
+            model=model,
+            api_key=key,
+            base_url="https://openrouter.ai/api/v1",
+            temperature=settings.llm_temperature,
+        )
+
+    if provider == "openai":
+        from langchain_openai import ChatOpenAI
+        key = api_key or settings.openai_api_key
+        if not key:
+            raise ValueError("OPENAI_API_KEY missing.")
+        return ChatOpenAI(
+            model=model,
+            api_key=key,
+            temperature=settings.llm_temperature,
+        )
+
+    # Default: Ollama (local, no key needed)
     return ChatOllama(
-        model=settings.llm_model,
+        model=model or settings.llm_model,
         base_url=settings.llm_base_url,
         temperature=settings.llm_temperature,
     )
@@ -95,31 +182,25 @@ def ingest_documents(docs: List[Document]) -> int:
 
 # Query Pipeline
 
-def query(question: str, k: int = 4, system_instruction: str = "") -> Dict[str, Any]:
+def query(
+    question: str,
+    k: int = 4,
+    system_instruction: str = "",
+    provider: str = "",
+    model: str = "",
+    api_key: str = "",
+) -> Dict[str, Any]:
     log.info(f"Query received: {question}")
     instruction = system_instruction.strip() or DEFAULT_INSTRUCTION
-    retriever = get_vector_store().as_retriever(
-        search_kwargs={"k": k}
-    )
-    document_chain = create_stuff_documents_chain(
-        get_llm(),
-        PROMPT,
-    )
-    chain = create_retrieval_chain(
-        retriever,
-        document_chain,
-    ).with_config({"run_name": "rag_chain"})
-    result = chain.invoke({
-        "input": question,
-        "system_instruction": instruction,
-    })
+    retriever = get_vector_store().as_retriever(search_kwargs={"k": k})
+    llm = get_llm(provider=provider, model=model, api_key=api_key)
+    document_chain = create_stuff_documents_chain(llm, PROMPT)
+    chain = create_retrieval_chain(retriever, document_chain).with_config({"run_name": "rag_chain"})
+    result = chain.invoke({"input": question, "system_instruction": instruction})
     return {
         "answer": result.get("answer", ""),
         "sources": [
-            {
-                "content": doc.page_content,
-                "metadata": doc.metadata,
-            }
+            {"content": doc.page_content, "metadata": doc.metadata}
             for doc in result.get("context", [])
         ],
     }

@@ -81,7 +81,8 @@ def delete_doc_fn(source: str):
     except Exception as e:
         return f"❌ Error: {e}", gr.update()
 
-def chat_fn(question: str, history: list[dict] | None, system_instruction: str):
+def chat_fn(question: str, history: list[dict] | None, system_instruction: str,
+            provider: str, model: str, api_key: str):
     history = history or []
     if not question.strip():
         return history, ""
@@ -94,6 +95,9 @@ def chat_fn(question: str, history: list[dict] | None, system_instruction: str):
                 "question": question,
                 "k": 4,
                 "system_instruction": system_instruction,
+                "provider": provider,
+                "model": model,
+                "api_key": api_key,
             },
         )
         resp.raise_for_status()
@@ -121,6 +125,24 @@ def build_ui() -> gr.Blocks:
             "Ask questions about your uploaded documents."
         )
         with gr.Tab("Chat"):
+            with gr.Row():
+                provider_dd = gr.Dropdown(
+                    choices=["ollama", "gemini", "groq", "openrouter", "openai"],
+                    value="ollama",
+                    label="Provider",
+                    scale=1,
+                )
+                model_txt = gr.Textbox(
+                    label="Model (leave blank for default)",
+                    placeholder="e.g. gemini-2.0-flash-lite",
+                    scale=2,
+                )
+                api_key_txt = gr.Textbox(
+                    label="API Key (or set in .env)",
+                    placeholder="Paste key here — not saved",
+                    type="password",
+                    scale=2,
+                )
             system_instruction = gr.Textbox(
                 label="System Instruction (optional)",
                 placeholder="e.g. Answer only in bullet points. Be concise.",
@@ -137,19 +159,15 @@ def build_ui() -> gr.Blocks:
                 send_btn = gr.Button("Send", scale=1)
             send_btn.click(
                 chat_fn,
-                inputs=[txt, chatbot, system_instruction],
+                inputs=[txt, chatbot, system_instruction, provider_dd, model_txt, api_key_txt],
                 outputs=[chatbot, txt],
             )
             txt.submit(
                 chat_fn,
-                inputs=[txt, chatbot, system_instruction],
+                inputs=[txt, chatbot, system_instruction, provider_dd, model_txt, api_key_txt],
                 outputs=[chatbot, txt],
             )
-            clear_btn.click(
-                lambda: ([], ""),
-                None,
-                [chatbot, txt],
-            )
+            clear_btn.click(lambda: ([], ""), None, [chatbot, txt])
 
         with gr.Tab("Upload"):
             file_input = gr.File(
@@ -164,6 +182,80 @@ def build_ui() -> gr.Blocks:
                 outputs=[upload_status],
                 show_progress=True,
             )
+
+        with gr.Tab("Sources"):
+            gr.Markdown("### Ingest from online sources")
+
+            with gr.Tab("Web URLs"):
+                web_urls = gr.Textbox(
+                    label="URLs (one per line or comma-separated)",
+                    lines=4,
+                    placeholder="https://example.com/article\nhttps://docs.example.com",
+                )
+                web_btn = gr.Button("Fetch & Ingest")
+                web_status = gr.Markdown()
+                def web_ingest_fn(urls):
+                    try:
+                        r = client.post(f"{BASE_URL}/sources/ingest/web", json={"urls": urls}, timeout=120)
+                        r.raise_for_status()
+                        d = r.json()
+                        return f"✅ Fetched {d['documents_fetched']} page(s) → {d['chunks_ingested']} chunk(s)"
+                    except Exception as e:
+                        return f"❌ {e}"
+                web_btn.click(web_ingest_fn, inputs=[web_urls], outputs=[web_status])
+
+            with gr.Tab("GitHub"):
+                gh_token = gr.Textbox(label="GitHub PAT Token", type="password")
+                gh_repos = gr.Textbox(label="Repos (comma-separated)", placeholder="owner/repo1, owner/repo2")
+                gh_branch = gr.Textbox(label="Branch (leave blank for default)", placeholder="main")
+                gh_btn = gr.Button("Fetch & Ingest")
+                gh_status = gr.Markdown()
+                def github_ingest_fn(token, repos, branch):
+                    try:
+                        r = client.post(f"{BASE_URL}/sources/ingest/github",
+                            json={"token": token, "repos": repos, "branch": branch}, timeout=300)
+                        r.raise_for_status()
+                        d = r.json()
+                        return f"✅ Fetched {d['documents_fetched']} file(s) → {d['chunks_ingested']} chunk(s)"
+                    except Exception as e:
+                        return f"❌ {e}"
+                gh_btn.click(github_ingest_fn, inputs=[gh_token, gh_repos, gh_branch], outputs=[gh_status])
+
+            with gr.Tab("Notion"):
+                notion_token = gr.Textbox(label="Notion Integration Token", type="password")
+                notion_pages = gr.Textbox(label="Page IDs (comma-separated, or leave blank for all)")
+                notion_dbs = gr.Textbox(label="Database IDs (comma-separated, optional)")
+                notion_btn = gr.Button("Fetch & Ingest")
+                notion_status = gr.Markdown()
+                def notion_ingest_fn(token, pages, dbs):
+                    try:
+                        r = client.post(f"{BASE_URL}/sources/ingest/notion",
+                            json={"token": token, "page_ids": pages, "database_ids": dbs}, timeout=120)
+                        r.raise_for_status()
+                        d = r.json()
+                        return f"✅ Fetched {d['documents_fetched']} page(s) → {d['chunks_ingested']} chunk(s)"
+                    except Exception as e:
+                        return f"❌ {e}"
+                notion_btn.click(notion_ingest_fn, inputs=[notion_token, notion_pages, notion_dbs], outputs=[notion_status])
+
+            with gr.Tab("Google Drive"):
+                gr.Markdown(
+                    "Place `credentials.json` in the project root first.\n"
+                    "First run will open a browser for Google OAuth consent."
+                )
+                gd_folder = gr.Textbox(label="Folder ID (optional — blank = all Drive files)")
+                gd_btn = gr.Button("Connect & Ingest")
+                gd_status = gr.Markdown()
+                def gdrive_ingest_fn(folder_id):
+                    try:
+                        r = client.post(f"{BASE_URL}/sources/ingest/gdrive",
+                            json={"folder_id": folder_id}, timeout=300)
+                        r.raise_for_status()
+                        d = r.json()
+                        return f"✅ Fetched {d['documents_fetched']} file(s) → {d['chunks_ingested']} chunk(s)"
+                    except Exception as e:
+                        return f"❌ {e}"
+                gd_btn.click(gdrive_ingest_fn, inputs=[gd_folder], outputs=[gd_status])
 
         with gr.Tab("Manage"):
             gr.Markdown("### Ingested Documents")
