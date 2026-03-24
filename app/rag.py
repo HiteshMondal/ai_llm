@@ -21,15 +21,18 @@ log = get_logger(__name__)
 # Prompt Template
 
 PROMPT = PromptTemplate(
-    input_variables=["context", "question"],
+    input_variables=["context", "input", "system_instruction"],
     template=(
+        "{system_instruction}\n\n"
         "Use the context below to answer the question.\n"
         "If you don't know, say 'I don't know'.\n\n"
         "Context:\n{context}\n\n"
-        "Question: {question}\n"
+        "Question: {input}\n"
         "Answer:"
     ),
 )
+
+DEFAULT_INSTRUCTION = "You are a helpful assistant. Answer based on the provided context."
 
 
 # Embedding Model
@@ -92,29 +95,24 @@ def ingest_documents(docs: List[Document]) -> int:
 
 # Query Pipeline
 
-def query(question: str, k: int = 4) -> Dict[str, Any]:
-
+def query(question: str, k: int = 4, system_instruction: str = "") -> Dict[str, Any]:
     log.info(f"Query received: {question}")
-
+    instruction = system_instruction.strip() or DEFAULT_INSTRUCTION
     retriever = get_vector_store().as_retriever(
         search_kwargs={"k": k}
     )
-
     document_chain = create_stuff_documents_chain(
         get_llm(),
         PROMPT,
     )
-
     chain = create_retrieval_chain(
         retriever,
         document_chain,
     ).with_config({"run_name": "rag_chain"})
-
     result = chain.invoke({
         "input": question,
-        "question": question
+        "system_instruction": instruction,
     })
-
     return {
         "answer": result.get("answer", ""),
         "sources": [
@@ -125,3 +123,37 @@ def query(question: str, k: int = 4) -> Dict[str, Any]:
             for doc in result.get("context", [])
         ],
     }
+
+# List all documents
+
+def list_documents() -> List[Dict[str, Any]]:
+    vs = get_vector_store()
+    result = vs.get(include=["metadatas"])
+    seen = {}
+    for i, meta in enumerate(result["metadatas"]):
+        source = meta.get("source", "unknown")
+        doc_id = result["ids"][i]
+        if source not in seen:
+            seen[source] = {"source": source, "ids": []}
+        seen[source]["ids"].append(doc_id)
+    return [
+        {"source": s, "chunk_count": len(v["ids"])}
+        for s, v in seen.items()
+    ]
+
+# Delete documents by source filename
+
+def delete_documents(source: str) -> int:
+    vs = get_vector_store()
+    result = vs.get(include=["metadatas"])
+    ids_to_delete = [
+        result["ids"][i]
+        for i, meta in enumerate(result["metadatas"])
+        if meta.get("source") == source
+    ]
+    if not ids_to_delete:
+        log.warning(f"No chunks found for source: {source}")
+        return 0
+    vs.delete(ids=ids_to_delete)
+    log.info(f"Deleted {len(ids_to_delete)} chunk(s) for '{source}'")
+    return len(ids_to_delete)

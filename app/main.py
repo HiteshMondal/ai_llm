@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
-from app.api import health, ingest, chat
+from app.api import health, ingest, chat, manage
 from app.config import get_settings
 from app.logger import get_logger
 from app.rag import get_vector_store, get_llm
@@ -32,6 +33,11 @@ app.add_middleware(
 app.include_router(health)
 app.include_router(ingest)
 app.include_router(chat)
+app.include_router(manage)
+
+@app.get("/")
+def root():
+    return RedirectResponse(url="/health")
 
 
 # Startup Event

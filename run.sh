@@ -35,6 +35,22 @@ encode_json_string() {
         | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))"
 }
 
+# Install Ollama
+
+install_ollama() {
+    if command -v ollama &>/dev/null; then
+        echo "[run] Ollama already installed: $(ollama --version)"
+        return
+    fi
+    echo "==> Installing Ollama"
+    curl -fsSL https://ollama.com/install.sh | sh
+    if ! command -v ollama &>/dev/null; then
+        echo "❌ Ollama installation failed"
+        exit 1
+    fi
+    echo "✅ Ollama installed: $(ollama --version)"
+}
+
 # Setup
 
 cmd_setup() {
@@ -64,11 +80,18 @@ from sentence_transformers import SentenceTransformer
 SentenceTransformer("all-MiniLM-L6-v2")
 PY
 
-    if command -v ollama &>/dev/null; then
-        echo "==> Pulling tinyllama model"
-        ollama pull tinyllama
-    else
-        echo "⚠ Install Ollama: https://ollama.com"
+    install_ollama
+    echo "==> Pulling tinyllama model"
+    # Start ollama serve temporarily if not running
+    if ! curl -sf http://localhost:11434 -o /dev/null 2>&1; then
+        ollama serve &>/dev/null &
+        OLLAMA_SETUP_PID=$!
+        sleep 3
+    fi
+    ollama pull tinyllama
+    # Stop temp serve if we started it
+    if [ -n "${OLLAMA_SETUP_PID:-}" ]; then
+        kill "$OLLAMA_SETUP_PID" 2>/dev/null || true
     fi
 
     echo "✅ Setup complete"
@@ -80,6 +103,35 @@ cmd_start() {
 
     load_env
     activate_venv
+
+    # Ensure Ollama is installed
+    install_ollama
+
+    # Start ollama serve if not already running
+    OLLAMA_URL="${OLLAMA_BASE_URL:-http://localhost:11434}"
+    if ! curl -sf "${OLLAMA_URL}" -o /dev/null 2>&1; then
+        echo "[run] Starting Ollama server..."
+        ollama serve &>/dev/null &
+        OLLAMA_PID=$!
+        echo "[run] Ollama PID: $OLLAMA_PID"
+    else
+        echo "[run] Ollama already running"
+    fi
+
+    # Wait for Ollama to be ready
+    echo "[run] Waiting for Ollama at ${OLLAMA_URL} ..."
+    for i in $(seq 1 15); do
+        if curl -sf "${OLLAMA_URL}" -o /dev/null 2>&1; then
+            echo "[run] Ollama is up"
+            break
+        fi
+        if [ "$i" -eq 15 ]; then
+            echo "❌ Ollama did not start in time"
+            exit 1
+        fi
+        echo "[run] waiting... ($i/15)"
+        sleep 2
+    done
 
     echo "[run] Starting FastAPI http://${APP_HOST}:${APP_PORT}"
 
@@ -95,7 +147,7 @@ cmd_start() {
 
     UI_PID=$!
 
-    trap 'echo ""; echo "[run] stopping..."; kill $API_PID $UI_PID 2>/dev/null; exit 0' INT TERM
+    trap 'echo ""; echo "[run] stopping..."; kill $API_PID $UI_PID ${OLLAMA_PID:-} 2>/dev/null; exit 0' INT TERM
 
     echo "[run] running (Ctrl+C to stop)"
 
