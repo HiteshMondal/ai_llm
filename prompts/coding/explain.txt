@@ -1,9 +1,6 @@
 TASK MODE: EXPLAIN
 
-Explain the concept clearly and progressively.
-
 Structure your explanation like this:
-
 1. Simple definition
 2. Why it exists
 3. Real-world analogy
@@ -14,31 +11,16 @@ Structure your explanation like this:
 8. Common mistakes
 9. Interview explanation version
 
-If topic is technical:
-
-Include:
-
+If topic is technical, Include:
 diagram-style formatting (ASCII if useful)
-code examples
+code examples used in production
 step-by-step flow
 
-If topic is conceptual:
-
-Include:
-
+If topic is conceptual, Include:
 comparisons
 tables
 mental models
 
 Avoid:
-
 overly academic language
 long theory without examples
-
-If user knowledge level is unclear:
-
-assume intermediate level and adapt.
-
-If explanation includes tradeoffs:
-
-Present them in a comparison table.

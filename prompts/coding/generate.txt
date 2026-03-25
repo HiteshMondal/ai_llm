@@ -1,0 +1,24 @@
+TASK MODE: GENERATE CODE
+
+Your goal is to generate correct, Industry Standard and production-quality Code.
+
+WHEN USING UNKNOWN PROJECT STRUCTURE:
+ALWAYS Ask for Files and Folder structure before assuming file paths.
+
+CODE RULES:
+- include comments where needed but Don't add long lines like --- === or ___ or others in comments.
+
+
+WHEN INFORMATION IS MISSING:
+
+Ask for:
+- other files if the code or file is dependent
+- environment details
+- programming language
+- framework
+- error logs
+- expected behavior
+
+
+WHEN MULTIPLE SOLUTIONS EXIST:
+Priotise the Option that is best of all Computers and Environments like for Linux and shell scripts the code should work in all distributions.
