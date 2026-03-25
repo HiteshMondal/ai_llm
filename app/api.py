@@ -5,11 +5,13 @@ from pathlib import Path
 import shutil
 import mimetypes
 import json
-
+import re
+from pydantic import Field
 from app.config import get_settings
 from app.logger import get_logger
 from app.rag import query, stream_query, ingest_documents, get_document_preview
 from app.ingest import load_file, clean_documents, chunk_documents
+from urllib.parse import unquote
 
 settings = get_settings()
 log = get_logger(__name__)
@@ -37,7 +39,7 @@ class ChatRequest(BaseModel):
     provider: str = ""
     model: str = ""
     api_key: str = ""
-    history: list[dict] = []        # [{role: "user"|"assistant", content: "..."}]
+    history: list[dict[str, str]] = Field(default_factory=list)
 
 
 @chat.post("/chat")
@@ -72,12 +74,12 @@ def chat_stream_endpoint(req: ChatRequest):
                 api_key=req.api_key,
                 history=req.history or [],
             ):
-                yield f"data: {json.dumps({'token': token})}\n\n"
+                yield f"data: {json.dumps(token)}\n\n"
         except Exception as e:
             log.error(f"Stream error: {e}")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
         finally:
-            yield "data: [DONE]\n\n"
+            yield "event: done\ndata: done\n\n"
 
     return StreamingResponse(
         _generate(),
@@ -99,8 +101,14 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @ingest.post("/ingest")
 async def ingest_endpoint(file: UploadFile = File(...)):
-    filename = Path(file.filename).name
+    filename = re.sub(r"[^a-zA-Z0-9._-]", "_", Path(file.filename).name)
+    filename = filename.replace("..", "_")
     dest = UPLOAD_DIR / filename
+    if dest.exists():
+        raise HTTPException(
+            status_code=409,
+            detail=f"{filename} already exists"
+        )
 
     with dest.open("wb") as f:
         shutil.copyfileobj(file.file, f)
@@ -148,8 +156,7 @@ def list_docs():
 
 @manage.get("/documents/{source}/preview")
 def preview_doc(source: str, max_chars: int = Query(default=2000, le=10000)):
-    from urllib.parse import unquote
-    source = unquote(source)
+    source = Path(unquote(source)).name
     preview = get_document_preview(source, max_chars=max_chars)
     if not preview:
         raise HTTPException(status_code=404, detail=f"No document found: {source}")
@@ -159,8 +166,7 @@ def preview_doc(source: str, max_chars: int = Query(default=2000, le=10000)):
 @manage.delete("/documents/{source}")
 def delete_doc(source: str):
     from app.rag import delete_documents
-    from urllib.parse import unquote
-    source = unquote(source)
+    source = Path(unquote(source)).name
     deleted = delete_documents(source)
     if deleted == 0:
         raise HTTPException(status_code=404, detail=f"No document found: {source}")
@@ -194,7 +200,13 @@ class GithubRequest(BaseModel):
 
 def _run_connector(connector) -> dict:
     from app.ingest import clean_documents, chunk_documents
-    docs = connector.fetch()
+    try:
+        docs = connector.fetch()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Connector failed: {str(e)}"
+        )
     if not docs:
         raise HTTPException(status_code=400, detail="No documents fetched from source")
     docs = clean_documents(docs)
@@ -229,7 +241,6 @@ def ingest_notion(req: NotionRequest):
 @sources.post("/sources/ingest/web")
 def ingest_web(req: WebRequest):
     from app.connectors import WebConnector
-    import re
     urls = [u.strip() for u in re.split(r"[,\n]+", req.urls) if u.strip()]
     if not urls:
         raise HTTPException(status_code=400, detail="No URLs provided")

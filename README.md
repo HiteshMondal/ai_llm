@@ -23,50 +23,6 @@ A local Retrieval-Augmented Generation (RAG) application built with **FastAPI**,
 
 ---
 
-## Project Structure
-
-```
-ai_llm/
-├── run.sh                  # ← single entry point for all commands
-├── config.yaml             # central configuration
-├── .env.example            # environment variable template
-├── requirements.txt
-│
-├── app/
-│   ├── api/                # FastAPI route handlers (chat, ingest, health)
-│   ├── core/               # embedder, LLM engine, RAG pipeline
-│   ├── ingestion/          # document loaders, cleaner, chunker
-│   ├── ui/                 # Gradio web interface
-│   ├── utils/              # config, logger, helpers
-│   └── main.py             # FastAPI app entry point
-│
-├── data/
-│   ├── uploads/            # files uploaded via API or UI
-│   ├── processed/          # post-ingestion copies
-│   ├── raw/                # source documents (put files here)
-│   ├── embeddings/         # ChromaDB persistence
-│   └── cache/
-│
-├── infra/
-│   ├── docker/             # Dockerfile + docker-compose.yml
-│   └── scripts/            # setup.sh, start.sh, ingest.sh
-│
-├── models/
-│   ├── base/
-│   ├── embeddings/
-│   ├── fine-tuned/
-│   └── quantized/
-│
-└── training/
-    ├── configs/            # train_config.yaml, fine_tune_config.yaml, eval_config.yaml
-    ├── datasets/           # training data (.txt, .jsonl)
-    ├── scripts/            # train.py, fine_tune.py, evaluate.py
-    ├── checkpoints/
-    └── logs/
-```
-
----
-
 ## Quick Start
 
 ### 1. Clone
