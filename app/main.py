@@ -7,9 +7,9 @@ from fastapi.responses import RedirectResponse
 
 from app.api import health, ingest, chat, manage, sources
 from app.config import get_settings
-from app.logger import get_logger
 from app.rag import list_documents, ingest_documents
-from app.ingest import load_file, clean_documents, chunk_documents
+from app.rag import load_file, clean_documents, chunk_documents
+from app.config import get_settings, get_logger
 
 DEFAULT_FILE = Path("data/uploads/default_knowledge.txt")
 

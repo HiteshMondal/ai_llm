@@ -8,19 +8,17 @@ import json
 import re
 from pydantic import Field
 from app.config import get_settings
-from app.logger import get_logger
 from app.rag import query, stream_query, ingest_documents, get_document_preview
-from app.ingest import load_file, clean_documents, chunk_documents
+from app.rag import load_file, clean_documents, chunk_documents
 from urllib.parse import unquote
+from app.config import get_logger
 
 settings = get_settings()
 log = get_logger(__name__)
 
 
 #  Health 
-
 health = APIRouter()
-
 
 @health.get("/health")
 def health_check():
@@ -199,7 +197,7 @@ class GithubRequest(BaseModel):
     branch: str = ""
 
 def _run_connector(connector) -> dict:
-    from app.ingest import clean_documents, chunk_documents
+    from app.rag import clean_documents, chunk_documents
     try:
         docs = connector.fetch()
     except Exception as e:

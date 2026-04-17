@@ -1,23 +1,29 @@
+from pathlib import Path
+import re
 import hashlib
 import time
-import asyncio
 import threading
-import re
+import json
 import torch
 
 from functools import lru_cache
 from typing import List, Dict, Any, Iterator, Optional
-from langchain_core.messages import HumanMessage
+
 from langchain.schema import Document
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.prompts import PromptTemplate
 from langchain_chroma import Chroma
 from langchain_ollama import ChatOllama
 from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.messages import HumanMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.embeddings import Embeddings
 
-from app.config import get_settings
-from app.logger import get_logger
+from app.config import (
+    get_settings,
+    get_logger,
+    SUPPORTED_EXTENSIONS,
+)
 
 _lock = threading.Lock()
 log = get_logger(__name__)
@@ -67,6 +73,117 @@ avoid speculation
 reference system components when relevant
 """
 
+
+# TEXT CLEANING
+
+def clean_text(text: str) -> str:
+    text = re.sub(r"\r\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return "\n".join(line.strip() for line in text.splitlines()).strip()
+
+
+def clean_documents(docs: List[Document]) -> List[Document]:
+
+    cleaned: List[Document] = []
+
+    for doc in docs:
+
+        doc.page_content = clean_text(doc.page_content)
+
+        if doc.page_content:
+            cleaned.append(doc)
+
+        else:
+            log.warning(
+                f"Document empty after cleaning: "
+                f"{doc.metadata.get('source', '?')}"
+            )
+
+    log.info(f"Cleaned {len(cleaned)}/{len(docs)} documents")
+
+    return cleaned
+
+
+# CHUNKING
+
+def chunk_documents(docs: List[Document]) -> List[Document]:
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=settings.chunk_size,
+        chunk_overlap=settings.chunk_overlap,
+        separators=["\n\n", "\n", ".", " ", ""],
+    )
+
+    chunks = splitter.split_documents(docs)
+
+    log.info(f"Split {len(docs)} doc(s) → {len(chunks)} chunk(s)")
+
+    return chunks
+
+
+# FILE LOADING
+
+def load_file(path: str | Path) -> List[Document]:
+
+    path = Path(path)
+
+    if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+
+        log.warning(
+            f"Unsupported file type: {path.name}. "
+            f"Allowed: {', '.join(SUPPORTED_EXTENSIONS)}"
+        )
+
+        return []
+
+    try:
+
+        text = path.read_text(
+            encoding="utf-8",
+            errors="ignore",
+        )
+
+        log.info(
+            f"Loaded '{path.name}' "
+            f"({len(text)} characters)"
+        )
+
+        return [
+
+            Document(
+                page_content=text,
+                metadata={"source": path.name},
+            )
+
+        ]
+
+    except Exception as e:
+
+        log.error(
+            f"Failed to load '{path.name}': {e}"
+        )
+
+        return []
+
+
+def load_directory(directory: str | Path) -> List[Document]:
+
+    directory = Path(directory)
+
+    docs: List[Document] = []
+
+    for file in directory.rglob("*"):
+
+        if file.is_file():
+
+            docs.extend(load_file(file))
+
+    log.info(
+        f"Loaded {len(docs)} doc(s) from '{directory}'"
+    )
+
+    return docs
 
 #  Query Cache 
 
@@ -318,7 +435,6 @@ def ingest_documents(docs: List[Document]) -> int:
         vs.add_documents(batch)
         total += len(batch)
         log.info(f"Ingested batch {i // batch_size + 1}: {len(batch)} chunk(s)")
-    vs.persist()
 
     # Invalidate cache after new ingestion
     _cache.invalidate_all()

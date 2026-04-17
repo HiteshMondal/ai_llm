@@ -11,7 +11,7 @@ services:
 
   api:
     build:
-      context: ../..
+      context: ../../..
       dockerfile: app/docker/Dockerfile
     container_name: rag_api
     ports:
@@ -29,7 +29,7 @@ services:
 
   ui:
     build:
-      context: ../..
+      context: ../../..
       dockerfile: app/docker/Dockerfile
     container_name: rag_ui
     command: python3 -m app.ui

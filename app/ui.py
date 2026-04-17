@@ -150,8 +150,6 @@ def chat_fn(
                         # Check for sources sentinel
                         if token.strip().startswith("{"):
                             json_buffer += token
-                        else:
-                            accumulated += token
                         try:
                             maybe_json = json.loads(json_buffer)
                             if "__sources__" in maybe_json:
