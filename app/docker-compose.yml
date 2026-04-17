@@ -1,4 +1,5 @@
 services:
+
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
@@ -31,7 +32,7 @@ services:
       context: ../..
       dockerfile: app/docker/Dockerfile
     container_name: rag_ui
-    command: python3 -m app.ui.app_ui
+    command: python3 -m app.ui
     ports:
       - "7860:7860"
     env_file:

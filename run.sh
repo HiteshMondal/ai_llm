@@ -67,7 +67,7 @@ cmd_setup() {
         --index-url https://download.pytorch.org/whl/cpu
 
     echo "==> Installing dependencies"
-    pip install -r requirements.txt
+    pip install -r app/requirements.txt
 
     echo "==> Installing connector + provider dependencies"
     pip install \
