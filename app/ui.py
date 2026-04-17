@@ -3,9 +3,10 @@ import httpx
 import gradio as gr
 import os
 from app.config import get_settings
+from app.config import get_logger
 
+log = get_logger(__name__)
 settings = get_settings()
-
 BASE_URL = f"http://127.0.0.1:{settings.app_port}"
 
 def get_client():
@@ -103,6 +104,8 @@ def chat_fn(
     api_key: str,
     use_stream: bool,
 ):
+    api_key = ""
+    use_stream = True
     history = history or []
     if not question.strip():
         return history, ""
@@ -179,7 +182,10 @@ def chat_fn(
             msg = "⏳ Request timed out. Try a shorter question or switch to a faster provider."
             yield history + [{"role": "assistant", "content": msg}], ""
         except Exception as e:
-            yield history + [{"role": "assistant", "content": f"❌ Error: {e}"}], ""
+            import traceback
+            tb = traceback.format_exc()
+            log.error(f"chat_fn error: {tb}")
+            yield history + [{"role": "assistant", "content": f"❌ Error: {e}\n\n```\n{tb}\n```"}], ""
 
     else:
         # Non-streaming fallback
@@ -322,12 +328,6 @@ def build_ui() -> gr.Blocks:
                     placeholder="e.g. gemini-2.0-flash-lite",
                     scale=2,
                 )
-                api_key_txt = gr.Textbox(
-                    label="API Key (or set in .env)",
-                    placeholder="Paste key — not saved",
-                    type="password",
-                    scale=2,
-                )
 
             with gr.Row():
                 system_instruction = gr.Textbox(
@@ -335,12 +335,6 @@ def build_ui() -> gr.Blocks:
                     placeholder="e.g. Answer only in bullet points.",
                     lines=2,
                     scale=5,
-                )
-                use_stream = gr.Checkbox(
-                    label="⚡ Streaming",
-                    value=True,
-                    scale=1,
-                    container=True,
                 )
 
             chatbot = gr.Chatbot(
@@ -361,7 +355,7 @@ def build_ui() -> gr.Blocks:
                 send_btn = gr.Button("Send ➤", scale=1, variant="primary")
                 clear_btn = gr.Button("🗑 Clear", scale=1)
 
-            chat_inputs = [txt, chatbot, system_instruction, provider_dd, model_txt, api_key_txt, use_stream]
+            chat_inputs = [txt, chatbot, system_instruction, provider_dd, model_txt]
 
             send_btn.click(
                 chat_fn,

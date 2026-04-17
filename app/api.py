@@ -37,8 +37,18 @@ class ChatRequest(BaseModel):
     provider: str = ""
     model: str = ""
     api_key: str = ""
-    history: list[dict[str, str]] = Field(default_factory=list)
+    history: list = Field(default_factory=list)
 
+def _sanitize_history(history: list) -> list:
+    """Ensure every history entry is a plain dict with role/content keys."""
+    result = []
+    for turn in history:
+        if isinstance(turn, dict):
+            role = turn.get("role", "user")
+            content = turn.get("content", "")
+            if isinstance(content, str):
+                result.append({"role": role, "content": content})
+    return result
 
 @chat.post("/chat")
 def chat_endpoint(req: ChatRequest):
@@ -51,7 +61,7 @@ def chat_endpoint(req: ChatRequest):
         provider=req.provider,
         model=req.model,
         api_key=req.api_key,
-        history=req.history or [],
+        history=_sanitize_history(req.history),
     )
 
 
@@ -70,9 +80,9 @@ def chat_stream_endpoint(req: ChatRequest):
                 provider=req.provider,
                 model=req.model,
                 api_key=req.api_key,
-                history=req.history or [],
+                history=_sanitize_history(req.history),
             ):
-                yield f"data: {json.dumps(token)}\n\n"
+                yield f"data: {json.dumps({'token': token})}\n\n"
         except Exception as e:
             log.error(f"Stream error: {e}")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"

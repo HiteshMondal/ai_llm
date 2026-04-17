@@ -406,11 +406,13 @@ def rerank_documents(question: str, docs: List[Document]) -> List[Document]:
 #  Session Memory 
 
 def format_history(history: List[Dict[str, str]]) -> str:
-    """Convert chat history list into a context string for the prompt."""
     if not history:
         return ""
     lines = ["Previous conversation:"]
     for turn in history[-(settings.session_memory_turns * 2):]:
+        if not isinstance(turn, dict):
+            log.warning(f"format_history: skipping non-dict turn: {type(turn)} = {turn!r}")
+            continue
         role = turn.get("role", "user").capitalize()
         content = turn.get("content", "")
         lines.append(f"{role}: {content}")
