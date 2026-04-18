@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# run.sh —  Runner
+# Should work and be compatible with all Linux computers including WSL.
+
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,7 +46,8 @@ install_ollama() {
 
 ensure_setup_done() {
 
-    if [ ! -d ".venv" ]; then
+    if [ ! -f ".venv/bin/activate" ]; then
+        rm -rf .venv
         echo ""
         echo "==> First run detected — performing setup"
         echo ""
@@ -56,7 +60,27 @@ cmd_setup() {
 
     echo "==> Creating virtual environment"
 
-    python3 -m venv .venv
+    PYTHON_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    echo "==> Installing system build dependencies"
+    if command -v apt-get &>/dev/null; then
+        sudo apt-get install -y \
+            "python${PYTHON_VER}-venv" \
+            "python${PYTHON_VER}-dev" \
+            build-essential pkg-config
+    elif command -v dnf &>/dev/null; then
+        sudo dnf install -y \
+            "python${PYTHON_VER}" \
+            "python${PYTHON_VER}-devel" \
+            gcc pkg-config
+    elif command -v pacman &>/dev/null; then
+        sudo pacman -S --noconfirm python python-pip base-devel pkg-config
+    else
+        echo "[run] WARNING: Unknown package manager — skipping system deps. Install python-dev and pkg-config manually if setup fails." >&2
+    fi
+    if ! python3 -m venv .venv; then
+        echo "[run] ERROR: Failed to create virtual environment." >&2
+        exit 1
+    fi
 
     activate_venv
 
