@@ -101,8 +101,8 @@ def chat_fn(
     system_instruction: str,
     provider: str,
     model: str,
-    api_key: str,
-    use_stream: bool,
+    api_key: str = "",
+    use_stream: bool = True,
 ):
     api_key = ""
     use_stream = True
@@ -150,7 +150,6 @@ def chat_fn(
                             break
                         token = payload.get("token", "")
 
-                        # Check for sources sentinel
                         if token.strip().startswith("{"):
                             json_buffer += token
                         try:
@@ -166,7 +165,6 @@ def chat_fn(
                         updated = history + [{"role": "assistant", "content": accumulated}]
                         yield updated, ""
 
-            # Append sources after streaming
             if sources_data:
                 src_lines = "\n".join(
                     f"- **{s['metadata'].get('source', '?')}** — "
@@ -188,7 +186,6 @@ def chat_fn(
             yield history + [{"role": "assistant", "content": f"❌ Error: {e}\n\n```\n{tb}\n```"}], ""
 
     else:
-        # Non-streaming fallback
         yield history + [{"role": "assistant", "content": "⏳ Thinking..."}], ""
         try:
             with get_client() as client:
@@ -306,182 +303,124 @@ def gdrive_ingest_fn(folder_id):
 
 #  UI Builder 
 
-def build_ui() -> gr.Blocks:
-    with gr.Blocks(title="AI RAG Chat", theme=gr.themes.Soft()) as demo:
-        gr.Markdown(
-            "# 🤖 AI RAG Chat\n"
-            "Ask questions about your uploaded documents. "
-            "Supports streaming, session memory, and multiple LLM providers."
-        )
+css = """
+footer { display: none !important; }
+#app-title { padding: 12px 0 8px; border-bottom: 1px solid #e5e5e5; margin-bottom: 8px; }
+#app-title p { font-size: 14px; color: #666; margin: 0; }
+.tab-nav button { font-size: 13px !important; padding: 6px 14px !important; }
+"""
 
-        #  Chat Tab 
-        with gr.Tab("💬 Chat"):
-            with gr.Row(equal_height=True):
+def build_ui() -> gr.Blocks:
+
+    with gr.Blocks(title="RAG Chat", theme=gr.themes.Base(), css=css) as demo:
+        with gr.Row(elem_id="app-title"):
+            gr.Markdown("**RAG Chat** · ask questions about your documents")
+
+        #  Chat 
+        with gr.Tab("Chat"):
+            with gr.Row():
                 provider_dd = gr.Dropdown(
                     choices=["ollama", "gemini", "groq", "openrouter", "openai"],
                     value="ollama",
                     label="Provider",
                     scale=1,
+                    min_width=120,
                 )
                 model_txt = gr.Textbox(
-                    label="Model (blank = default)",
-                    placeholder="e.g. gemini-2.0-flash-lite",
+                    label="Model",
+                    placeholder="blank = default",
                     scale=2,
                 )
-
-            with gr.Row():
                 system_instruction = gr.Textbox(
-                    label="System Instruction (optional)",
-                    placeholder="e.g. Answer only in bullet points.",
-                    lines=2,
-                    scale=5,
+                    label="System prompt",
+                    placeholder="optional instructions",
+                    scale=3,
                 )
 
             chatbot = gr.Chatbot(
-                height=460,
+                height=480,
                 type="messages",
-                show_copy_button=True,
-                avatar_images=(None, "🤖"),
-                bubble_full_width=False,
+                allow_tags=False,
+                show_label=False,
             )
 
             with gr.Row():
                 txt = gr.Textbox(
-                    placeholder="Ask a question about your documents…",
-                    scale=8,
+                    placeholder="Ask something…",
+                    scale=9,
                     show_label=False,
                     autofocus=True,
+                    container=False,
                 )
-                send_btn = gr.Button("Send ➤", scale=1, variant="primary")
-                clear_btn = gr.Button("🗑 Clear", scale=1)
+                send_btn = gr.Button("Send", scale=1, variant="primary", min_width=72)
+                clear_btn = gr.Button("Clear", scale=1, min_width=64)
 
             chat_inputs = [txt, chatbot, system_instruction, provider_dd, model_txt]
-
-            send_btn.click(
-                chat_fn,
-                inputs=chat_inputs,
-                outputs=[chatbot, txt],
-            )
-            txt.submit(
-                chat_fn,
-                inputs=chat_inputs,
-                outputs=[chatbot, txt],
-            )
+            send_btn.click(chat_fn, inputs=chat_inputs, outputs=[chatbot, txt])
+            txt.submit(chat_fn, inputs=chat_inputs, outputs=[chatbot, txt])
             clear_btn.click(lambda: ([], ""), None, [chatbot, txt])
 
-        #  Upload Tab 
-        with gr.Tab("📁 Upload"):
-            gr.Markdown("Upload `.txt` or `.md` files to add them to the knowledge base.")
+        #  Upload 
+        with gr.Tab("Upload"):
             file_input = gr.File(
-                label="Select files",
+                label="Files (.txt, .md, .pdf, .docx)",
                 file_count="multiple",
             )
-            upload_btn = gr.Button("⬆ Ingest Files", variant="primary")
+            upload_btn = gr.Button("Ingest", variant="primary")
             upload_status = gr.Markdown()
-            upload_btn.click(
-                upload_fn,
-                inputs=[file_input],
-                outputs=[upload_status],
-                show_progress=True,
-            )
+            upload_btn.click(upload_fn, inputs=[file_input], outputs=[upload_status])
 
-        #  Sources Tab 
-        with gr.Tab("🌐 Sources"):
-            gr.Markdown("### Ingest from online sources")
-
-            with gr.Tab("Web URLs"):
+        #  Sources 
+        with gr.Tab("Sources"):
+            with gr.Tab("Web"):
                 web_urls = gr.Textbox(
-                    label="URLs (one per line or comma-separated)",
-                    lines=4,
-                    placeholder="https://example.com/article\nhttps://docs.example.com",
+                    label="URLs (one per line)",
+                    lines=3,
+                    placeholder="https://example.com",
                 )
-                web_btn = gr.Button("🌐 Fetch & Ingest", variant="primary")
+                web_btn = gr.Button("Fetch & Ingest", variant="primary")
                 web_status = gr.Markdown()
                 web_btn.click(web_ingest_fn, inputs=[web_urls], outputs=[web_status])
 
             with gr.Tab("GitHub"):
-                gh_token = gr.Textbox(label="GitHub PAT Token", type="password")
-                gh_repos = gr.Textbox(
-                    label="Repos (comma-separated)",
-                    placeholder="owner/repo1, owner/repo2",
-                )
-                gh_branch = gr.Textbox(
-                    label="Branch (blank = default)",
-                    placeholder="main",
-                )
-                gh_btn = gr.Button("🐙 Fetch & Ingest", variant="primary")
+                gh_token = gr.Textbox(label="Token", type="password")
+                gh_repos = gr.Textbox(label="Repos", placeholder="owner/repo1, owner/repo2")
+                gh_branch = gr.Textbox(label="Branch", placeholder="main")
+                gh_btn = gr.Button("Fetch & Ingest", variant="primary")
                 gh_status = gr.Markdown()
-                gh_btn.click(
-                    github_ingest_fn,
-                    inputs=[gh_token, gh_repos, gh_branch],
-                    outputs=[gh_status],
-                )
+                gh_btn.click(github_ingest_fn, inputs=[gh_token, gh_repos, gh_branch], outputs=[gh_status])
 
             with gr.Tab("Notion"):
-                notion_token = gr.Textbox(label="Notion Integration Token", type="password")
-                notion_pages = gr.Textbox(
-                    label="Page IDs (comma-separated, or blank for all)",
-                )
-                notion_dbs = gr.Textbox(label="Database IDs (optional)")
-                notion_btn = gr.Button("📝 Fetch & Ingest", variant="primary")
+                notion_token = gr.Textbox(label="Token", type="password")
+                notion_pages = gr.Textbox(label="Page IDs", placeholder="comma-separated")
+                notion_dbs = gr.Textbox(label="Database IDs", placeholder="optional")
+                notion_btn = gr.Button("Fetch & Ingest", variant="primary")
                 notion_status = gr.Markdown()
-                notion_btn.click(
-                    notion_ingest_fn,
-                    inputs=[notion_token, notion_pages, notion_dbs],
-                    outputs=[notion_status],
-                )
+                notion_btn.click(notion_ingest_fn, inputs=[notion_token, notion_pages, notion_dbs], outputs=[notion_status])
 
             with gr.Tab("Google Drive"):
-                gr.Markdown(
-                    "Place `credentials.json` in the project root.\n"
-                    "First run will open a browser for Google OAuth consent."
-                )
-                gd_folder = gr.Textbox(
-                    label="Folder ID (blank = all Drive files)",
-                )
-                gd_btn = gr.Button("🔗 Connect & Ingest", variant="primary")
+                gr.Markdown("Place `credentials.json` in the project root before connecting.")
+                gd_folder = gr.Textbox(label="Folder ID", placeholder="blank = all files")
+                gd_btn = gr.Button("Connect & Ingest", variant="primary")
                 gd_status = gr.Markdown()
                 gd_btn.click(gdrive_ingest_fn, inputs=[gd_folder], outputs=[gd_status])
 
-        #  Manage Tab 
-        with gr.Tab("🗂 Manage"):
-            gr.Markdown("### Ingested Documents")
-            refresh_btn = gr.Button("🔄 Refresh List")
+        #  Manage 
+        with gr.Tab("Manage"):
+            refresh_btn = gr.Button("Refresh", min_width=80)
             doc_list = gr.Markdown()
 
-            gr.Markdown("### Preview Document")
-            preview_dd = gr.Dropdown(
-                label="Select document to preview",
-                choices=[],
-                interactive=True,
-            )
-            preview_btn = gr.Button("👁 Preview")
+            preview_dd = gr.Dropdown(label="Preview document", choices=[], interactive=True)
+            preview_btn = gr.Button("Show preview", min_width=96)
             preview_output = gr.Markdown()
 
-            gr.Markdown("### Delete Document")
-            delete_input = gr.Textbox(
-                label="Document filename to delete",
-                placeholder="e.g. knowledge.txt",
-            )
-            delete_btn = gr.Button("🗑 Delete", variant="stop")
+            delete_input = gr.Textbox(label="Delete document", placeholder="filename")
+            delete_btn = gr.Button("Delete", variant="stop", min_width=80)
             delete_status = gr.Markdown()
 
-            # Refresh updates both doc list and preview dropdown
-            refresh_btn.click(
-                list_docs_fn,
-                outputs=[doc_list, preview_dd],
-            )
-            preview_btn.click(
-                preview_doc_fn,
-                inputs=[preview_dd],
-                outputs=[preview_output],
-            )
-            delete_btn.click(
-                delete_doc_fn,
-                inputs=[delete_input],
-                outputs=[delete_status, delete_input],
-            )
-            # Auto-load on page open
+            refresh_btn.click(list_docs_fn, outputs=[doc_list, preview_dd])
+            preview_btn.click(preview_doc_fn, inputs=[preview_dd], outputs=[preview_output])
+            delete_btn.click(delete_doc_fn, inputs=[delete_input], outputs=[delete_status, delete_input])
             demo.load(list_docs_fn, outputs=[doc_list, preview_dd])
 
     return demo
@@ -490,8 +429,4 @@ def build_ui() -> gr.Blocks:
 #  Launch 
 
 if __name__ == "__main__":
-    build_ui().launch(
-        server_name="0.0.0.0",
-        server_port=settings.ui_port,
-        share=False,
-    )
+    build_ui().launch(server_name="0.0.0.0", server_port=settings.ui_port, share=False)

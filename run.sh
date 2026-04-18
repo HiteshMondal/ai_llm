@@ -160,17 +160,18 @@ cmd_start() {
         fi
 
     fi
-
+    echo "==================================================="
     echo "[run] Starting FastAPI → http://${APP_HOST}:${APP_PORT}"
+    echo "==================================================="
 
     uvicorn app.main:app \
         --host "$APP_HOST" \
         --port "$APP_PORT" &
 
     API_PID=$!
-
+    echo "==================================================="
     echo "[run] Starting Gradio → http://localhost:${UI_PORT}"
-
+    echo "==================================================="
     python -m app.ui &
 
     UI_PID=$!

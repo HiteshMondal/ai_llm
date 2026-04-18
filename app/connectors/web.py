@@ -1,10 +1,5 @@
 """
 Web / URL connector.
-
-Fetches one or more URLs, extracts clean article text using trafilatura,
-and returns them as Documents.
-
-Required package:  pip install trafilatura httpx
 """
 
 from typing import List

@@ -15,7 +15,7 @@ from langchain.prompts import PromptTemplate
 from langchain_chroma import Chroma
 from langchain_ollama import ChatOllama
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.embeddings import Embeddings
 
@@ -54,25 +54,65 @@ PROMPT = PromptTemplate(
 )
 
 DEFAULT_INSTRUCTION = """
-You are an AI assistant powered by Retrieval-Augmented Generation (RAG).
+You are a high-precision AI assistant powered by Retrieval-Augmented Generation (RAG).
 
-Answer questions using retrieved context whenever available.
+Follow this reasoning process when answering:
 
-If context is insufficient:
+1. If retrieved context directly answers the question:
+   Use it as the primary source.
 
-say "I don't know".
+2. If retrieved context partially answers the question:
+   Combine the context with your own knowledge to complete the answer.
 
-Prefer structured responses.
+3. If retrieved context is irrelevant or missing:
+   Answer using general knowledge and clearly state when doing so.
 
-When answering technical questions:
+Rules:
 
-explain architecture step-by-step
+- Never fabricate facts from missing context.
+- Prefer accurate and structured explanations.
+- Explain technical topics step-by-step.
+- Reference system components, architecture, or workflows when helpful.
+- Keep answers concise but complete.
+- When uncertainty exists, state assumptions clearly.
+- Do not repeat context verbatim unless necessary.
+- Prioritize clarity, correctness, and usefulness over verbosity.
 
-avoid speculation
+Output style:
 
-reference system components when relevant
+- Use structured formatting when appropriate
+- Use bullet points for multi-step explanations
+- Use examples when helpful
 """
 
+def detect_intent(message: str) -> str:
+    msg = message.lower().strip()
+
+    greetings = {
+        "hi", "hello", "hey", "yo",
+        "good morning", "good afternoon", "good evening"
+    }
+
+    casual_patterns = [
+        r"^hi+$",
+        r"^hello+$",
+        r"^hey+$"
+    ]
+
+    for pattern in casual_patterns:
+        if re.match(pattern, msg):
+            return "greeting"
+
+    if msg in greetings:
+        return "greeting"
+
+    if msg in {"thanks", "thank you", "thx"}:
+        return "thanks"
+
+    if msg in {"ok", "okay", "cool", "nice"}:
+        return "confirmation"
+
+    return "query"
 
 # TEXT CLEANING
 
@@ -478,62 +518,79 @@ def query(
 ) -> Dict[str, Any]:
 
     log.info(f"Query: {question!r}")
+
     llm = get_llm(provider=provider, model=model, api_key=api_key)
+
     instruction = system_instruction.strip() or DEFAULT_INSTRUCTION
+    chat_history_str = format_history(history or [])
+
+    intent = detect_intent(question)
+
+    if intent == "greeting":
+        return {"answer": "Hello! How can I help you today?", "sources": [], "cached": False, "reranked": False}
+
+    if intent == "thanks":
+        return {"answer": "You're welcome!", "sources": [], "cached": False, "reranked": False}
+
+    # Cache
     eff_provider = (provider or settings.llm_provider).lower().strip()
     eff_model = model or PROVIDER_MODELS.get(eff_provider, "")
 
-    # Cache lookup
     if not history:
         cached = _cache.get(question, instruction, k, eff_provider, eff_model)
-        if cached is not None:
-            log.info("Cache hit — returning cached answer")
-            cached_copy = cached.copy()
-            cached_copy["cached"] = True
-            return cached_copy
+        if cached:
+            return {
+                "answer": str(cached["answer"]),
+                "sources": cached.get("sources", []),
+                "cached": True,
+                "reranked": False,
+            }
 
-    chat_history_str = format_history(history or [])
+    # Retrieval
+    final_docs = []
 
-
-    # Retrieval gating
     if should_use_retrieval(question):
-
         retriever = get_vector_store().as_retriever(
-            search_kwargs={"k": max(k * 2, settings.reranker_top_n)}
+            search_kwargs={"k": max(k * 4, settings.reranker_top_n * 2)}
         )
 
         raw_docs = retriever.invoke(question)
-
         final_docs = rerank_documents(question, raw_docs)[:k]
 
-    else:
-        final_docs = []
-
-    # Fallback: normal chatbot mode
+    # NO RAG → direct LLM
     if not final_docs:
+        messages = [
+            SystemMessage(content=instruction),
+            HumanMessage(content=f"{chat_history_str}\nUser question:\n{question}")
+        ]
 
-        log.info("No relevant docs — using direct LLM response")
+        response = llm.invoke(messages)
 
-        answer = llm.invoke([
-            HumanMessage(
-                content=f"{instruction}\n\n{chat_history_str}\nUser question:\n{question}"
-            )
-        ])
-
-        response = {
-            "answer": answer.content,
+        result = {
+            "answer": response.content,
             "sources": [],
             "cached": False,
             "reranked": False,
         }
 
         if not history:
-            _cache.set(question, instruction, k, eff_provider, eff_model, response)
+            _cache.set(
+                question,
+                instruction,
+                k,
+                eff_provider,
+                eff_model,
+                {
+                    "answer": str(result),
+                    "sources": [{"content": d.page_content, "metadata": d.metadata} for d in final_docs],
+                    "cached": False,
+                    "reranked": False,
+                }
+            )
 
-        return response
+        return result
 
     # RAG mode
-
     document_chain = create_stuff_documents_chain(llm, PROMPT)
 
     result = document_chain.invoke({
@@ -543,23 +600,32 @@ def query(
         "chat_history": chat_history_str,
     })
 
-    response = {
+    output = {
         "answer": result,
         "sources": [
-            {
-                "content": doc.page_content,
-                "metadata": doc.metadata,
-            }
-            for doc in final_docs
+            {"content": d.page_content, "metadata": d.metadata}
+            for d in final_docs
         ],
         "cached": False,
         "reranked": settings.reranker_enabled,
     }
 
     if not history:
-        _cache.set(question, instruction, k, eff_provider, eff_model, response)
+        _cache.set(
+            question,
+            instruction,
+            k,
+            eff_provider,
+            eff_model,
+            {
+                "answer": str(result),
+                "sources": [{"content": d.page_content, "metadata": d.metadata} for d in final_docs],
+                "cached": False,
+                "reranked": False,
+            }
+        )
 
-    return response
+    return output
 
 def stream_query(
     question: str,
@@ -570,70 +636,45 @@ def stream_query(
     api_key: str = "",
     history: Optional[List[Dict[str, str]]] = None,
 ) -> Iterator[str]:
-    """Streaming RAG query — yields text tokens as they arrive."""
+
     log.info(f"Stream query: {question!r}")
+
+    intent = detect_intent(question)
+    if intent == "greeting":
+        yield "Hello! How can I help you today?"
+        return
+    if intent == "thanks":
+        yield "You're welcome!"
+        return
+
     instruction = system_instruction.strip() or DEFAULT_INSTRUCTION
     chat_history_str = format_history(history or [])
 
-    # Retrieval + re-ranking
-    if should_use_retrieval(question):
-        retriever = get_vector_store().as_retriever(
-            search_kwargs={"k": max(k * 2, settings.reranker_top_n)}
-        )
-        raw_docs = retriever.invoke(question)
-        final_docs = rerank_documents(question, raw_docs)[:k]
-    else:
+    llm = get_llm(provider=provider, model=model, api_key=api_key)
 
-        final_docs = []
+    messages = [
+        SystemMessage(content=instruction),
+        HumanMessage(content=f"{chat_history_str}\nUser question:\n{question}")
+    ]
 
-    context_str = "\n\n".join(d.page_content for d in final_docs if d.page_content)
-
-    if not final_docs:
-
-        log.info("No relevant docs — streaming direct LLM response")
-
-        llm = get_llm(provider=provider, model=model, api_key=api_key)
-
-        for chunk in llm.stream([
-                         HumanMessage(
-                             content=f"{instruction}\n\n{chat_history_str}\nUser question:\n{question}"
-                         )
-                     ]):
-
-            token = chunk.content if hasattr(chunk, "content") else str(chunk)
+    try:
+        # STREAM DIRECTLY (no RAG first)
+        for chunk in llm.stream(messages):
+            token = getattr(chunk, "content", None)
+            if not token:
+                token = getattr(chunk, "text", "")
 
             if token:
                 yield token
 
         return
 
+    except Exception as e:
+        log.error(f"Streaming failed: {e}")
 
-    prompt_text = PROMPT.format(
-        system_instruction=instruction,
-        chat_history=chat_history_str,
-        context=context_str,
-        input=question,
-    )
-
-    llm = get_llm(provider=provider, model=model, api_key=api_key)
-
-    for chunk in llm.stream([HumanMessage(content=prompt_text)]):
-        token = chunk.content if hasattr(chunk, "content") else str(chunk)
-        if token:
-            if settings.stream_chunk_delay > 0:
-                time.sleep(settings.stream_chunk_delay)
-            yield token
-
-    # Yield sources as a JSON sentinel at the end
-    import json
-    sources_payload = json.dumps({
-        "__sources__": [
-            {"content": doc.page_content, "metadata": doc.metadata}
-            for doc in final_docs
-        ]
-    })
-    yield f"\n\n{sources_payload}"
-
+        # fallback (VERY IMPORTANT)
+        response = llm.invoke(messages)
+        yield response.content
 
 #  Document Management 
 @lru_cache(maxsize=1)
@@ -666,11 +707,8 @@ def get_document_preview(source: str, max_chars: int = 2000) -> str:
     """Return a text preview of an ingested document by source name."""
     vs = get_vector_store()
     result = vs.get(where={"source": source}, include=["documents"])
-    chunks = [
-        result.get("documents", [])[i]
-        for i, meta in enumerate(result.get("metadatas", []))
-        if meta.get("source") == source
-    ]
+    chunks = result.get("documents", [])
+
     if not chunks:
         return ""
     full_text = "\n\n---\n\n".join(chunks)

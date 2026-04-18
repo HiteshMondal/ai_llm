@@ -1,14 +1,5 @@
 """
 GitHub connector.
-
-Fetches readable files (.md, .txt, .rst, .py, .js, .ts, etc.)
-from one or more GitHub repositories.
-
-Required package:  pip install PyGithub
-Required env var:
-  GITHUB_TOKEN   personal access token (PAT)
-                 Scopes needed: repo (private) or public_repo (public)
-                 Create at: https://github.com/settings/tokens
 """
 
 from typing import List, Optional

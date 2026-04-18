@@ -82,7 +82,7 @@ def chat_stream_endpoint(req: ChatRequest):
                 api_key=req.api_key,
                 history=_sanitize_history(req.history),
             ):
-                yield f"data: {json.dumps({'token': token})}\n\n"
+                yield f"data: {json.dumps({'token': str(token)}, ensure_ascii=False)}\n\n"
         except Exception as e:
             log.error(f"Stream error: {e}")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"

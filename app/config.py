@@ -20,12 +20,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """
-    Application configuration loaded from environment variables
-    or `.env` file automatically.
-
-    Supports provider switching without code changes.
-    """
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -61,8 +55,8 @@ class Settings(BaseSettings):
 
     # INGESTION CONFIG
 
-    chunk_size: int = 500
-    chunk_overlap: int = 50
+    chunk_size: int = 800
+    chunk_overlap: int = 120
 
     # QUERY CACHE CONFIG
 
@@ -133,12 +127,6 @@ def get_settings() -> Settings:
 
 
 def get_logger(name: str) -> logging.Logger:
-    """
-    Returns a configured logger instance.
-
-    Ensures logging is initialized only once
-    across the entire application lifecycle.
-    """
 
     root_logger = logging.getLogger()
 
@@ -171,8 +159,4 @@ SUPPORTED_EXTENSIONS = {
 
 
 def is_supported(path: str | Path) -> bool:
-    """
-    Returns True if file extension is supported
-    for ingestion pipeline.
-    """
     return Path(path).suffix.lower() in SUPPORTED_EXTENSIONS

@@ -1,16 +1,5 @@
 """
 Notion connector.
-
-Setup:
-  1. Go to https://www.notion.so/my-integrations
-  2. Create a new integration → copy the Internal Integration Token
-  3. Open each Notion page/database → "..." → "Add connections" → select your integration
-  4. Add to .env:
-       NOTION_TOKEN=secret_xxxxxxxxxxxxxx
-       NOTION_PAGE_IDS=page_id1,page_id2   (optional)
-       NOTION_DATABASE_IDS=db_id1          (optional)
-
-Required package:  pip install notion-client
 """
 
 from typing import List, Optional

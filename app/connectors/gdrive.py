@@ -1,17 +1,5 @@
 """
 Google Drive connector.
-
-Setup (one-time per machine):
-  1. Go to https://console.cloud.google.com
-  2. Create a project → Enable "Google Drive API"
-  3. Create OAuth 2.0 credentials (Desktop App) → download as credentials.json
-  4. Place credentials.json in the project root
-  5. First run will open a browser for consent → saves token.json automatically
-
-Required env vars:
-  GDRIVE_CREDENTIALS_FILE   path to credentials.json  (default: credentials.json)
-  GDRIVE_TOKEN_FILE         path to token.json        (default: token.json)
-  GDRIVE_FOLDER_ID          optional: only ingest files inside this folder
 """
 
 import io

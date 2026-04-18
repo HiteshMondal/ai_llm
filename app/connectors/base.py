@@ -11,25 +11,9 @@ log = get_logger(__name__)
 
 
 class BaseConnector(ABC):
-    """
-    Base class for all source connectors.
-
-    Provides:
-    - retry_request(): decorator/helper for HTTP calls with exponential back-off
-    - _now(): UTC ISO-8601 timestamp helper
-    - fetch(): abstract — each connector must implement this
-    """
 
     @abstractmethod
     def fetch(self) -> List[Document]:
-        """
-        Pull content from the source and return a list of Documents.
-
-        Each Document must have metadata containing at least:
-          - source      : human-readable name (filename, page title, url)
-          - source_type : 'gdrive' | 'notion' | 'web' | 'github' | 'local'
-          - fetched_at  : ISO-8601 UTC timestamp
-        """
         ...
 
     @staticmethod
@@ -39,10 +23,7 @@ class BaseConnector(ABC):
 
     @staticmethod
     def _retry(fn, *args, label: str = "", **kwargs):
-        """
-        Call fn(*args, **kwargs) with exponential back-off retry.
-        Settings are pulled from config (connector_max_retries, connector_retry_delay).
-        """
+
         settings = get_settings()
         max_retries = settings.connector_max_retries
         base_delay = settings.connector_retry_delay
