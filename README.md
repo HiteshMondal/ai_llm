@@ -28,23 +28,11 @@ A local Retrieval-Augmented Generation (RAG) application built with **FastAPI**,
 ### 1. Clone
 
 ```bash
-git clone <repo-url> ai_llm
+git clone https://github.com/HiteshMondal/ai_llm.git
 cd ai_llm
 ```
 
-### 2. Setup
-
-```bash
-bash run.sh setup
-```
-
-This will:
-- Create all required directories
-- Copy `.env.example` → `.env`
-- Create a Python virtual environment and install all dependencies
-- Pull default Ollama models (`llama3.2`, `nomic-embed-text`)
-
-### 3. Configure *(optional)*
+### 2. Configure *(optional)*
 
 Edit `.env` or `config.yaml` to change the LLM backend, ports, chunk size, etc.
 
@@ -55,11 +43,17 @@ LLM_MODEL=gpt-4o
 OPENAI_API_KEY=sk-...
 ```
 
-### 4. Start
+### 3. Start
 
 ```bash
-bash run.sh start
+bash run.sh
 ```
+This will:
+- Create all required directories
+- Copy `.env.example` → `.env`
+- Create a Python virtual environment and install all dependencies
+- Pull default Ollama models (`llama3.2`, `nomic-embed-text`)
+
 
 | Service | URL |
 |---------|-----|
@@ -67,7 +61,7 @@ bash run.sh start
 | API Docs | http://localhost:8000/docs |
 | Gradio UI | http://localhost:7860 |
 
-### 5. Ingest documents
+### 4. Ingest documents
 
 Put your files in `data/raw/`, then:
 
@@ -81,57 +75,10 @@ Or ingest a single file:
 bash run.sh ingest /path/to/document.pdf
 ```
 
-### 6. Chat
-
-```bash
-bash run.sh chat "What is this document about?"
-```
-
 Or open the Gradio UI at http://localhost:7860.
 
 ---
 
-## run.sh — All Commands
-
-```bash
-bash run.sh setup                      # first-time setup
-bash run.sh start                      # start FastAPI + Gradio UI
-bash run.sh start --api-only           # start FastAPI only
-bash run.sh start --docker             # start via Docker Compose
-
-bash run.sh ingest data/raw/           # ingest a directory
-bash run.sh ingest /path/to/file.pdf   # ingest a single file
-bash run.sh chat "your question"       # one-off question via API
-
-bash run.sh health                     # check API health status
-
-bash run.sh train                      # run training script
-bash run.sh finetune                   # run LoRA fine-tuning
-bash run.sh evaluate                   # run evaluation (perplexity + BLEU)
-
-bash run.sh stop                       # stop Docker Compose services
-bash run.sh logs                       # tail Docker Compose logs
-bash run.sh help                       # show all commands
-```
-
----
-
-## Docker
-
-```bash
-bash run.sh start --docker
-```
-
-Or manually:
-
-```bash
-cd infra/docker
-docker compose up --build
-```
-
-Starts three containers: `ai_llm_app` (FastAPI + Gradio), `ai_llm_ollama`, and `ai_llm_chromadb`.
-
----
 
 ## API Reference
 

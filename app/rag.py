@@ -550,12 +550,14 @@ def query(
     final_docs = []
 
     if should_use_retrieval(question):
-        retriever = get_vector_store().as_retriever(
-            search_kwargs={"k": max(k * 4, settings.reranker_top_n * 2)}
-        )
-
-        raw_docs = retriever.invoke(question)
-        final_docs = rerank_documents(question, raw_docs)[:k]
+        try:
+            vs = get_vector_store()
+            results_with_scores = vs.similarity_search_with_score(question, k=max(k * 4, settings.reranker_top_n * 2))
+            relevant = [doc for doc, score in results_with_scores if score < 1.0]
+            final_docs = rerank_documents(question, relevant)[:k]
+            log.info(f"Retrieved {len(final_docs)} relevant doc(s) (filtered from {len(results_with_scores)})")
+        except Exception as e:
+            log.warning(f"Retrieval failed: {e}")
 
     # NO RAG → direct LLM
     if not final_docs:
@@ -581,10 +583,8 @@ def query(
                 eff_provider,
                 eff_model,
                 {
-                    "answer": str(result),
-                    "sources": [{"content": d.page_content, "metadata": d.metadata} for d in final_docs],
-                    "cached": False,
-                    "reranked": False,
+                    "answer": result["answer"],
+                    "sources": [],
                 }
             )
 
@@ -652,27 +652,48 @@ def stream_query(
 
     llm = get_llm(provider=provider, model=model, api_key=api_key)
 
-    messages = [
-        SystemMessage(content=instruction),
-        HumanMessage(content=f"{chat_history_str}\nUser question:\n{question}")
-    ]
+    # Retrieval
+    final_docs = []
+    if should_use_retrieval(question):
+        try:
+            vs = get_vector_store()
+            results_with_scores = vs.similarity_search_with_score(question, k=max(k * 4, settings.reranker_top_n * 2))
+            # Lower score = more similar in Chroma (L2 distance). Filter threshold.
+            relevant = [doc for doc, score in results_with_scores if score < 1.0]
+            final_docs = rerank_documents(question, relevant)[:k]
+            log.info(f"Retrieved {len(final_docs)} relevant doc(s) (filtered from {len(results_with_scores)})")
+        except Exception as e:
+            log.warning(f"Retrieval failed during streaming: {e}")
+
+    if final_docs:
+        # RAG mode: build context and stream
+        context_text = "\n\n".join(d.page_content for d in final_docs)
+        prompt = (
+            f"{instruction}\n\n"
+            f"{chat_history_str}"
+            f"Use retrieved context when relevant.\n"
+            f"If context is not relevant, answer normally.\n\n"
+            f"Context:\n{context_text}\n\n"
+            f"Question: {question}\n"
+            f"Answer:"
+        )
+        messages = [HumanMessage(content=prompt)]
+    else:
+        # No RAG: direct LLM
+        messages = [
+            SystemMessage(content=instruction),
+            HumanMessage(content=f"{chat_history_str}\nUser question:\n{question}")
+        ]
 
     try:
-        # STREAM DIRECTLY (no RAG first)
         for chunk in llm.stream(messages):
             token = getattr(chunk, "content", None)
             if not token:
                 token = getattr(chunk, "text", "")
-
             if token:
                 yield token
-
-        return
-
     except Exception as e:
         log.error(f"Streaming failed: {e}")
-
-        # fallback (VERY IMPORTANT)
         response = llm.invoke(messages)
         yield response.content
 
