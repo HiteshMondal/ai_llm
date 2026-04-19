@@ -17,24 +17,6 @@ A local **Retrieval-Augmented Generation (RAG)** application built with **FastAP
 
 ---
 
-## Project Structure
-.
-├── app/
-│   ├── api.py          # FastAPI routes (chat, ingest, manage, sources)
-│   ├── config.py       # Settings and logger
-│   ├── main.py         # App entrypoint and lifespan
-│   ├── rag.py          # RAG pipeline (retrieval, LLM, cache)
-│   ├── ui.py           # Gradio web interface
-│   ├── connectors/     # Web, GitHub, Notion, Google Drive
-│   └── requirements.txt
-├── data/
-│   ├── uploads/        # Uploaded and default documents
-│   └── embeddings/     # ChromaDB vector store
-├── run.sh              # Setup and start script
-└── README.md
-
----
-
 ## Requirements
 
 - Python 3.11+
