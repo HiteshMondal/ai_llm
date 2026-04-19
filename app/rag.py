@@ -45,10 +45,16 @@ PROMPT = PromptTemplate(
     template=(
         "{system_instruction}\n\n"
         "{chat_history}"
-        "Use retrieved context when relevant.\n"
-        "If context is not relevant, answer normally.\n\n"
-        "Context:\n{context}\n\n"
-        "Question: {input}\n"
+        "Retrieved context (use when directly relevant, ignore if not):\n"
+        "-----\n"
+        "{context}\n"
+        "-----\n\n"
+        "Question: {input}\n\n"
+        "Instructions:\n"
+        "- If the context answers the question, base your answer on it and cite the source.\n"
+        "- If the context is partially relevant, combine it with your knowledge.\n"
+        "- If the context is irrelevant, answer from general knowledge and say so.\n"
+        "- Never fabricate information. Be concise and structured.\n\n"
         "Answer:"
     ),
 )
@@ -113,6 +119,18 @@ def detect_intent(message: str) -> str:
         return "confirmation"
 
     return "query"
+
+def expand_query(question: str) -> str:
+    """
+    Expand short or ambiguous queries to improve retrieval.
+    Returns an enriched version of the question for embedding search.
+    """
+    q = question.strip()
+    # Already a detailed question — don't modify
+    if len(q.split()) >= 8:
+        return q
+    # Append expansion hint so embedder catches more related chunks
+    return f"{q} explanation definition how why example"
 
 # TEXT CLEANING
 
@@ -487,20 +505,17 @@ def ingest_documents(docs: List[Document]) -> int:
 #  Retrieval
 
 def should_use_retrieval(question: str) -> bool:
-
     q = question.lower().strip()
-
-    # remove punctuation
     q_clean = re.sub(r"[^\w\s]", "", q)
+    words = q_clean.split()
 
-    casual = {"hi", "hello", "hey", "thanks", "ok", "yo"}
-
-    # single-word non-technical prompts
-    if len(q_clean.split()) == 1 and q_clean in casual:
+    # Pure arithmetic
+    if re.fullmatch(r"[\d\s\.\+\-\*/\(\)]+", q_clean):
         return False
 
-    # arithmetic detection
-    if re.fullmatch(r"\d+\s*[-+*/]\s*\d+", q_clean):
+    # Single casual words only
+    casual = {"hi", "hello", "hey", "thanks", "ok", "yo", "bye", "yes", "no"}
+    if len(words) <= 1 and q_clean in casual:
         return False
 
     return True
@@ -548,14 +563,28 @@ def query(
 
     # Retrieval
     final_docs = []
-
     if should_use_retrieval(question):
         try:
             vs = get_vector_store()
-            results_with_scores = vs.similarity_search_with_score(question, k=max(k * 4, settings.reranker_top_n * 2))
-            relevant = [doc for doc, score in results_with_scores if score < 1.0]
+            expanded = expand_query(question)
+            fetch_k = max(k * 4, settings.reranker_top_n * 2, 16)
+
+            # Primary search with expanded query
+            results_with_scores = vs.similarity_search_with_score(expanded, k=fetch_k)
+
+            # Also search with original question and merge (dedup by content)
+            if expanded != question:
+                orig_results = vs.similarity_search_with_score(question, k=fetch_k)
+                seen_content = {doc.page_content for doc, _ in results_with_scores}
+                for doc, score in orig_results:
+                    if doc.page_content not in seen_content:
+                        results_with_scores.append((doc, score))
+                        seen_content.add(doc.page_content)
+
+            # Chroma returns L2 distance: lower = more similar. Filter >1.2 as noise.
+            relevant = [doc for doc, score in results_with_scores if score < 1.2]
             final_docs = rerank_documents(question, relevant)[:k]
-            log.info(f"Retrieved {len(final_docs)} relevant doc(s) (filtered from {len(results_with_scores)})")
+            log.info(f"Retrieved {len(final_docs)} relevant doc(s) (from {len(results_with_scores)} candidates)")
         except Exception as e:
             log.warning(f"Retrieval failed: {e}")
 
@@ -612,16 +641,13 @@ def query(
 
     if not history:
         _cache.set(
-            question,
-            instruction,
-            k,
-            eff_provider,
-            eff_model,
+            question, instruction, k, eff_provider, eff_model,
             {
-                "answer": str(result),
-                "sources": [{"content": d.page_content, "metadata": d.metadata} for d in final_docs],
-                "cached": False,
-                "reranked": False,
+                "answer": result,
+                "sources": [
+                    {"content": d.page_content, "metadata": d.metadata}
+                    for d in final_docs
+                ],
             }
         )
 
@@ -652,44 +678,52 @@ def stream_query(
 
     llm = get_llm(provider=provider, model=model, api_key=api_key)
 
-    # Retrieval
+    # RAG retrieval (same as query())
     final_docs = []
     if should_use_retrieval(question):
         try:
             vs = get_vector_store()
-            results_with_scores = vs.similarity_search_with_score(question, k=max(k * 4, settings.reranker_top_n * 2))
-            # Lower score = more similar in Chroma (L2 distance). Filter threshold.
-            relevant = [doc for doc, score in results_with_scores if score < 1.0]
-            final_docs = rerank_documents(question, relevant)[:k]
-            log.info(f"Retrieved {len(final_docs)} relevant doc(s) (filtered from {len(results_with_scores)})")
+            expanded = expand_query(question)
+            fetch_k = max(k * 4, settings.reranker_top_n * 2, 16)
+
+            scored = vs.similarity_search_with_score(expanded, k=fetch_k)
+            if expanded != question:
+                orig_scored = vs.similarity_search_with_score(question, k=fetch_k)
+                seen = {doc.page_content for doc, _ in scored}
+                for doc, score in orig_scored:
+                    if doc.page_content not in seen:
+                        scored.append((doc, score))
+                        seen.add(doc.page_content)
+
+            raw_docs = [doc for doc, score in scored if score < 1.2]
+            log.info(f"Stream: {len(raw_docs)} chunks above threshold from {len(scored)}")
+            final_docs = rerank_documents(question, raw_docs)[:k]
         except Exception as e:
-            log.warning(f"Retrieval failed during streaming: {e}")
+            log.warning(f"Stream retrieval failed: {e}")
 
     if final_docs:
-        # RAG mode: build context and stream
-        context_text = "\n\n".join(d.page_content for d in final_docs)
-        prompt = (
-            f"{instruction}\n\n"
+        context_text = "\n\n---\n\n".join(
+            f"[Source: {d.metadata.get('source', '?')}]\n{d.page_content}"
+            for d in final_docs
+        )
+        user_content = (
             f"{chat_history_str}"
             f"Use retrieved context when relevant.\n"
             f"If context is not relevant, answer normally.\n\n"
             f"Context:\n{context_text}\n\n"
-            f"Question: {question}\n"
-            f"Answer:"
+            f"Question: {question}\nAnswer:"
         )
-        messages = [HumanMessage(content=prompt)]
     else:
-        # No RAG: direct LLM
-        messages = [
-            SystemMessage(content=instruction),
-            HumanMessage(content=f"{chat_history_str}\nUser question:\n{question}")
-        ]
+        user_content = f"{chat_history_str}\nUser question:\n{question}"
+
+    messages = [
+        SystemMessage(content=instruction),
+        HumanMessage(content=user_content),
+    ]
 
     try:
         for chunk in llm.stream(messages):
-            token = getattr(chunk, "content", None)
-            if not token:
-                token = getattr(chunk, "text", "")
+            token = getattr(chunk, "content", None) or getattr(chunk, "text", "")
             if token:
                 yield token
     except Exception as e:

@@ -54,24 +54,20 @@ class Settings(BaseSettings):
     chroma_persist_dir: str = "data/embeddings"
 
     # INGESTION CONFIG
-
-    chunk_size: int = 800
-    chunk_overlap: int = 120
+    chunk_size: int = 700          # characters per chunk — 700 balances context vs precision
+    chunk_overlap: int = 120       # repeated chars between chunks — prevents cutting sentences mid-way
 
     # QUERY CACHE CONFIG
-
-    query_cache_ttl_seconds: int = 300
-    query_cache_max_size: int = 256
+    query_cache_ttl_seconds: int = 600    # seconds before a cached answer expires (600 = 10 min)
+    query_cache_max_size: int = 256       # max unique questions stored in cache at once
 
     # RERANKER CONFIG
-
-    reranker_enabled: bool = False
-    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-    reranker_top_n: int = 4
+    reranker_enabled: bool = False        # set True to re-score retrieved chunks for better accuracy (slower)
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"   # model used for re-scoring
+    reranker_top_n: int = 5              # how many top chunks to pass to LLM after re-ranking
 
     # SESSION MEMORY CONFIG
-
-    session_memory_turns: int = 6
+    session_memory_turns: int = 6        # past conversation turns sent to LLM — higher = better memory, slower
 
     # STREAMING CONFIG
 

@@ -1,397 +1,220 @@
-AI RAG Assistant – Default Knowledge Base
+# AI Personal Assistant — Default Knowledge Base
+
+## About This Assistant
+
+You are a personal AI assistant designed to help with everyday questions, tasks, and topics.
+You are knowledgeable, balanced, and helpful across a wide range of subjects.
+You give clear, accurate, and concise answers. When you are unsure, you say so honestly.
+You do not guess or fabricate facts.
+
 
 ---
 
-## INTRODUCTION
+## General Behavior
 
-This assistant is powered by a Retrieval-Augmented Generation (RAG) architecture.
+- Always greet the user warmly but keep it brief.
+- Get to the point quickly — avoid unnecessary filler or padding.
+- Use bullet points or numbered lists when explaining multiple steps or items.
+- Use plain language. Avoid jargon unless the user is clearly technical.
+- If a question is ambiguous, ask a short clarifying question before answering.
+- Always be honest — if you don't know something, say "I'm not sure" rather than guessing.
 
-RAG combines:
-
-semantic search
-vector databases
-document retrieval
-language model reasoning
-
-The assistant retrieves relevant document content and uses it as context before generating responses.
-
-If no user documents are uploaded yet, this file acts as the primary knowledge source.
 
 ---
 
-## WHAT THIS APPLICATION IS
+## Productivity & Time Management
 
-This system is a modular AI document assistant designed for knowledge retrieval and technical question answering.
+### Tips for Getting Things Done
+- Break large tasks into smaller, actionable steps.
+- Use the "2-minute rule": if a task takes less than 2 minutes, do it immediately.
+- Prioritize tasks using the Eisenhower Matrix:
+  - Urgent + Important → Do it now
+  - Not Urgent + Important → Schedule it
+  - Urgent + Not Important → Delegate it
+  - Not Urgent + Not Important → Eliminate it
+- Review your to-do list at the start and end of each day.
+- Batch similar tasks together to reduce context switching.
 
-Core components include:
+### Focus Techniques
+- Pomodoro Technique: Work for 25 minutes, take a 5-minute break. After 4 cycles, take a longer break (15–30 minutes).
+- Time blocking: Reserve specific time slots in your calendar for deep work.
+- Eliminate distractions: Silence notifications, use focus mode, keep your workspace tidy.
 
-FastAPI backend API
-LangChain retrieval pipeline
-Chroma vector database
-SentenceTransformers embedding model
-optional cross-encoder reranker
-multi-provider LLM support
-connector-based ingestion architecture
-query caching system
-streaming response pipeline
-session conversation memory
-Gradio web interface
-
-The system retrieves document fragments from storage and injects them into prompts before generating responses.
-
----
-
-## HIGH LEVEL PIPELINE OVERVIEW
-
-When a question is asked:
-
-1. the question is converted into an embedding
-2. the vector database searches similar chunks
-3. top matching chunks are selected
-4. optional reranking improves relevance
-5. selected context is inserted into the prompt
-6. language model generates a grounded response
 
 ---
 
-## RETRIEVAL AUGMENTED GENERATION (RAG)
+## Health & Wellness
 
-Retrieval-Augmented Generation improves answer quality by combining:
+### Physical Health Basics
+- Aim for 7–9 hours of sleep per night for most adults.
+- Drink at least 8 glasses (2 liters) of water daily, more if physically active.
+- Regular exercise: At least 150 minutes of moderate activity per week (e.g., brisk walking, cycling).
+- Eat a balanced diet: include vegetables, fruits, whole grains, lean proteins, and healthy fats.
+- Limit processed foods, excess sugar, and alcohol.
+- Take regular breaks from screens — follow the 20-20-20 rule: every 20 minutes, look at something 20 feet away for 20 seconds.
 
-document retrieval
-context selection
-language model reasoning
+### Mental Health Basics
+- Practice mindfulness or meditation even for just 5–10 minutes a day.
+- Stay socially connected — talk to friends, family, or colleagues regularly.
+- Journaling can help process emotions and reduce stress.
+- Seek professional help if you experience persistent anxiety, depression, or burnout.
+- It is okay to say no — protecting your energy is important.
 
-Benefits include:
-
-reduced hallucination
-domain-specific responses
-support for private knowledge bases
-improved factual accuracy
-enterprise-ready architecture
-
----
-
-## DOCUMENT INGESTION PIPELINE
-
-When a document is ingested:
-
-Step 1
-
-file is uploaded or downloaded from connector
-
-Step 2
-
-text content is extracted
-
-Step 3
-
-content is cleaned
-
-Step 4
-
-document is split into smaller chunks
-
-Step 5
-
-chunks are converted into embeddings
-
-Step 6
-
-embeddings are stored in the vector database
-
-After ingestion, document content becomes searchable.
 
 ---
 
-## SUPPORTED DOCUMENT TYPES
+## Learning & Personal Growth
 
-Currently supported:
+### How to Learn Effectively
+- Active recall: Test yourself instead of just rereading. Use flashcards or practice problems.
+- Spaced repetition: Review material at increasing intervals over time.
+- Teach what you learn: Explaining a concept to someone else is one of the best ways to understand it deeply (Feynman Technique).
+- Take notes in your own words, not verbatim copy.
+- Focus on one topic at a time — multitasking while learning reduces retention.
 
-TXT files
-Markdown files
+### Building Good Habits
+- Start small: Make the new habit easy enough that you cannot fail on day one.
+- Attach new habits to existing ones (habit stacking): e.g., "After I make coffee, I will read for 10 minutes."
+- Track your streak — consistency is more important than intensity early on.
+- Reward yourself for milestones to reinforce the behavior.
+- If you miss a day, never miss twice — one missed day is a mistake, two is a new habit forming.
 
-These formats are automatically processed and indexed.
-
----
-
-## VECTOR DATABASE EXPLANATION
-
-This system uses a vector database instead of keyword search.
-
-Vector databases store embeddings representing semantic meaning.
-
-Advantages:
-
-understands intent instead of exact words
-supports similarity search
-retrieves relevant context automatically
-improves response accuracy
 
 ---
 
-## CHROMA VECTOR STORAGE
+## Finance & Money Basics
 
-This assistant uses Chroma as the vector database backend.
+### Budgeting
+- The 50/30/20 rule is a simple starting point:
+  - 50% of income → needs (rent, food, utilities)
+  - 30% → wants (entertainment, dining out)
+  - 20% → savings and debt repayment
+- Track your spending for at least one month to understand where your money goes.
+- Build an emergency fund — aim for 3–6 months of living expenses saved.
 
-Chroma stores:
+### Saving & Investing (General Principles)
+- Pay yourself first: transfer savings automatically as soon as you receive income.
+- Avoid lifestyle inflation — as income grows, increase savings before spending more.
+- Compound interest is powerful — starting early matters more than the amount invested.
+- Diversify investments — do not put all money in one place.
+- Note: This assistant does not provide personalized financial advice. Consult a qualified financial advisor for decisions specific to your situation.
 
-text chunks
-embedding vectors
-metadata information
-
-Chroma enables fast semantic retrieval across stored documents.
-
----
-
-## EMBEDDING MODELS
-
-Embeddings convert text into numerical vectors.
-
-Supported embedding providers include:
-
-local SentenceTransformers models
-
-example:
-
-all-MiniLM-L6-v2
-
-cloud embedding providers:
-
-Google Gemini embeddings
-OpenAI embeddings
-
-Embeddings allow semantic similarity search.
 
 ---
 
-## SUPPORTED LANGUAGE MODEL PROVIDERS
+## Technology & Everyday Tech Help
 
-This assistant supports multiple LLM providers.
+### Common Computer Tips
+- Restart your device before assuming something is broken — it fixes most issues.
+- Keep software and operating systems updated for security and performance.
+- Use strong, unique passwords for every account. Use a password manager.
+- Enable two-factor authentication (2FA) on important accounts.
+- Back up important files regularly — follow the 3-2-1 rule:
+  - 3 copies of data, on 2 different media types, with 1 copy offsite or in the cloud.
 
-Local providers:
+### Internet & Online Safety
+- Do not click links in unsolicited emails or messages — verify the sender first.
+- Check website URLs carefully before entering passwords or payment info.
+- Use a VPN on public Wi-Fi networks.
+- Be cautious about what personal information you share online.
+- If something online seems too good to be true, it usually is.
 
-Ollama
-TinyLlama
-LLaMA family models
-
-Cloud providers:
-
-Google Gemini
-Groq
-OpenRouter
-OpenAI
-
-Providers can be changed through configuration.
-
----
-
-## RERANKING SYSTEM
-
-The assistant optionally supports cross-encoder reranking.
-
-Reranking improves retrieval accuracy by:
-
-scoring candidate chunks
-reordering results
-selecting strongest matches
-
-This improves answer quality when many documents exist.
 
 ---
 
-## STREAMING RESPONSE PIPELINE
+## Communication & Writing
 
-Streaming responses allow answers to appear progressively.
+### Writing Clearly
+- Start with your main point — do not bury the conclusion.
+- Use short sentences and paragraphs. Aim for one idea per paragraph.
+- Avoid unnecessary words: "due to the fact that" → "because".
+- Read your writing out loud to catch awkward phrasing.
+- Always proofread before sending anything important.
 
-Benefits include:
+### Email Best Practices
+- Use a clear, specific subject line.
+- State the purpose of the email in the first sentence.
+- Keep it concise — if it takes more than 30 seconds to read, consider trimming it.
+- End with a clear call to action: what do you need the recipient to do?
+- Reply within 24 hours when possible.
 
-lower perceived latency
-better interactivity
-real-time answer generation
-
----
-
-## SESSION MEMORY SUPPORT
-
-Conversation history can be included in prompts.
-
-This allows:
-
-follow-up questions
-context-aware conversations
-multi-turn interactions
 
 ---
 
-## QUERY CACHE SYSTEM
+## Problem Solving
 
-The assistant includes a query cache.
+### A Simple Framework
+1. Define the problem clearly — what exactly is wrong?
+2. Identify the root cause — ask "why?" five times if needed (5 Whys method).
+3. Brainstorm possible solutions — list them without judging yet.
+4. Evaluate options — consider effort, cost, and impact.
+5. Choose and implement the best option.
+6. Review the outcome — did it solve the problem? What can be improved?
 
-The cache stores:
+### When Stuck
+- Step away and come back with fresh eyes — sleep on it if possible.
+- Talk it through with someone else — explaining the problem often reveals the solution.
+- Search for how others have solved similar problems.
+- Simplify: strip the problem down to its most basic form.
 
-question text
-retrieval depth
-provider selection
-model selection
-
-Benefits:
-
-faster repeated responses
-lower compute usage
-reduced latency
-
----
-
-## CONNECTOR BASED INGESTION
-
-The system supports connector-based knowledge ingestion.
-
-Supported connectors include:
-
-GitHub repositories
-Notion workspaces
-Google Drive folders
-Web URLs
 
 ---
 
-## GITHUB CONNECTOR CAPABILITIES
+## Quick Reference — Useful Formulas & Facts
 
-The GitHub connector can:
+### Unit Conversions
+- 1 mile = 1.609 kilometers
+- 1 kilogram = 2.205 pounds
+- 1 liter = 0.264 US gallons
+- 0°C = 32°F | 100°C = 212°F | Formula: °F = (°C × 9/5) + 32
 
-download repository files
-extract documentation content
-index README files
-index Markdown documentation
-store searchable project knowledge
+### Time Zones (approximate UTC offsets)
+- UTC+0: London (GMT)
+- UTC+1 to +2: Central Europe
+- UTC+5:30: India (IST)
+- UTC+8: China, Singapore
+- UTC+9: Japan, South Korea
+- UTC-5: Eastern USA (EST)
+- UTC-8: Pacific USA (PST)
 
----
+### Keyboard Shortcuts (Windows / Mac)
+- Copy: Ctrl+C / Cmd+C
+- Paste: Ctrl+V / Cmd+V
+- Undo: Ctrl+Z / Cmd+Z
+- Find: Ctrl+F / Cmd+F
+- Save: Ctrl+S / Cmd+S
+- Screenshot: PrtScn / Cmd+Shift+4
 
-## NOTION CONNECTOR CAPABILITIES
-
-The Notion connector can:
-
-retrieve workspace pages
-extract structured content
-index documentation
-store searchable knowledge
-
----
-
-## GOOGLE DRIVE CONNECTOR CAPABILITIES
-
-The Google Drive connector can:
-
-authenticate using OAuth
-retrieve shared files
-index stored documents
-enable private dataset retrieval
 
 ---
 
-## WEB CONNECTOR CAPABILITIES
+## Frequently Asked General Questions
 
-The web connector can:
+Q: What is the best way to start a new habit?
+A: Start extremely small — smaller than you think necessary. Attach it to an existing habit. Track it daily. Miss one day, never two.
 
-download webpage content
-extract readable article text
-remove boilerplate HTML
-store searchable web knowledge
+Q: How do I improve my focus and stop procrastinating?
+A: Break the task into the smallest possible first step. Start a timer for just 5 minutes. Most procrastination comes from starting — once begun, continuing is easier.
 
----
+Q: How do I stay motivated long term?
+A: Motivation fades — systems and routines beat motivation. Set clear goals, build habits that make progress automatic, and track small wins.
 
-## METADATA STORED WITH DOCUMENTS
+Q: What should I do when I feel overwhelmed?
+A: Stop and write everything down — get it out of your head. Then pick just one thing to work on next. Focus on one task at a time.
 
-Each document chunk may contain metadata such as:
+Q: How do I make better decisions?
+A: Gather enough information to be informed but not paralyzed. Consider the reversibility — easy to undo decisions can be made faster. Think about your future self: will this decision matter in 5 years?
 
-source filename
-connector type
-document origin
-ingestion timestamp
+Q: How can I improve my sleep?
+A: Keep a consistent sleep schedule (same time every day, including weekends). Avoid screens 30–60 minutes before bed. Keep your bedroom cool and dark. Avoid caffeine after 2 PM.
 
-Metadata helps with:
-
-document traceability
-source tracking
-future filtering support
 
 ---
 
-## HOW RETRIEVAL WORKS DURING A QUERY
+## Notes for the Assistant
 
-When a question is asked:
-
-question converted into embedding
-
-vector database searches nearest matches
-
-top matching chunks selected
-
-context injected into prompt
-
-language model generates response
-
----
-
-## USE CASES FOR THIS SYSTEM
-
-This assistant can be used for:
-
-personal knowledge assistants
-
-developer documentation search
-
-research assistants
-
-technical onboarding systems
-
-enterprise knowledge retrieval
-
-support automation assistants
-
----
-
-## HOW TO IMPROVE ANSWER QUALITY
-
-Answer quality improves when additional documents are uploaded.
-
-Recommended uploads include:
-
-technical documentation
-
-project READMEs
-
-research material
-
-notes
-
-knowledge bases
-
-architecture documentation
-
----
-
-## PROJECT PURPOSE
-
-This project demonstrates a production-style Retrieval-Augmented Generation assistant architecture with:
-
-semantic vector search
-
-multi-provider LLM support
-
-connector-based ingestion
-
-document lifecycle management
-
-query caching
-
-streaming responses
-
-session memory
-
-extensible modular backend design
-
----
-
-## END OF DEFAULT KNOWLEDGE BASE
+- This document serves as the default knowledge base for general personal assistant queries.
+- If a user asks about something not covered here, answer from general knowledge and clearly indicate that.
+- Always be helpful, honest, and concise.
+- Do not make up information. Do not provide medical, legal, or financial advice — refer users to relevant professionals.
+- Respect user privacy — do not store or repeat back sensitive personal information unnecessarily.

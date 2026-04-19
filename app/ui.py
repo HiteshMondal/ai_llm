@@ -62,9 +62,9 @@ def list_docs_fn():
 
 
 def delete_doc_fn(source: str):
-    source = source.strip()
     if not source:
-        return "Enter a document name to delete.", gr.update()
+        return "Select a document to delete.", gr.update()
+    source = source.strip()
     try:
         from urllib.parse import quote
         with get_client() as client:
@@ -372,56 +372,69 @@ def build_ui() -> gr.Blocks:
 
         #  Sources 
         with gr.Tab("Sources"):
-            with gr.Tab("Web"):
-                web_urls = gr.Textbox(
-                    label="URLs (one per line)",
-                    lines=3,
-                    placeholder="https://example.com",
-                )
-                web_btn = gr.Button("Fetch & Ingest", variant="primary")
-                web_status = gr.Markdown()
-                web_btn.click(web_ingest_fn, inputs=[web_urls], outputs=[web_status])
 
-            with gr.Tab("GitHub"):
-                gh_token = gr.Textbox(label="Token", type="password")
-                gh_repos = gr.Textbox(label="Repos", placeholder="owner/repo1, owner/repo2")
-                gh_branch = gr.Textbox(label="Branch", placeholder="main")
-                gh_btn = gr.Button("Fetch & Ingest", variant="primary")
-                gh_status = gr.Markdown()
-                gh_btn.click(github_ingest_fn, inputs=[gh_token, gh_repos, gh_branch], outputs=[gh_status])
+            # Web
+            gr.Markdown("#### 🌐 Web")
+            web_urls = gr.Textbox(label="URLs (one per line)", lines=2, placeholder="https://example.com")
+            web_btn = gr.Button("Fetch & Ingest", variant="primary")
+            web_status = gr.Markdown()
+            web_btn.click(web_ingest_fn, inputs=[web_urls], outputs=[web_status])
 
-            with gr.Tab("Notion"):
-                notion_token = gr.Textbox(label="Token", type="password")
-                notion_pages = gr.Textbox(label="Page IDs", placeholder="comma-separated")
-                notion_dbs = gr.Textbox(label="Database IDs", placeholder="optional")
-                notion_btn = gr.Button("Fetch & Ingest", variant="primary")
-                notion_status = gr.Markdown()
-                notion_btn.click(notion_ingest_fn, inputs=[notion_token, notion_pages, notion_dbs], outputs=[notion_status])
+            gr.Markdown("---")
 
-            with gr.Tab("Google Drive"):
-                gr.Markdown("Place `credentials.json` in the project root before connecting.")
-                gd_folder = gr.Textbox(label="Folder ID", placeholder="blank = all files")
-                gd_btn = gr.Button("Connect & Ingest", variant="primary")
-                gd_status = gr.Markdown()
-                gd_btn.click(gdrive_ingest_fn, inputs=[gd_folder], outputs=[gd_status])
+            # GitHub
+            gr.Markdown("#### 🐙 GitHub")
+            with gr.Row():
+                gh_token = gr.Textbox(label="Token", type="password", scale=2)
+                gh_repos = gr.Textbox(label="Repos", placeholder="owner/repo1, owner/repo2", scale=3)
+                gh_branch = gr.Textbox(label="Branch", placeholder="main", scale=1)
+            gh_btn = gr.Button("Fetch & Ingest", variant="primary")
+            gh_status = gr.Markdown()
+            gh_btn.click(github_ingest_fn, inputs=[gh_token, gh_repos, gh_branch], outputs=[gh_status])
+
+            gr.Markdown("---")
+
+            # Notion
+            gr.Markdown("#### 📝 Notion")
+            with gr.Row():
+                notion_token = gr.Textbox(label="Token", type="password", scale=2)
+                notion_pages = gr.Textbox(label="Page IDs", placeholder="comma-separated", scale=2)
+                notion_dbs = gr.Textbox(label="Database IDs", placeholder="optional", scale=2)
+            notion_btn = gr.Button("Fetch & Ingest", variant="primary")
+            notion_status = gr.Markdown()
+            notion_btn.click(notion_ingest_fn, inputs=[notion_token, notion_pages, notion_dbs], outputs=[notion_status])
+
+            gr.Markdown("---")
+
+            # Google Drive
+            gr.Markdown("#### ☁️ Google Drive")
+            gr.Markdown("`credentials.json` must be present in the project root.")
+            gd_folder = gr.Textbox(label="Folder ID", placeholder="blank = all files")
+            gd_btn = gr.Button("Connect & Ingest", variant="primary")
+            gd_status = gr.Markdown()
+            gd_btn.click(gdrive_ingest_fn, inputs=[gd_folder], outputs=[gd_status])
 
         #  Manage 
         with gr.Tab("Manage"):
-            refresh_btn = gr.Button("Refresh", min_width=80)
+            refresh_btn = gr.Button("🔄 Refresh", min_width=80)
             doc_list = gr.Markdown()
 
-            preview_dd = gr.Dropdown(label="Preview document", choices=[], interactive=True)
-            preview_btn = gr.Button("Show preview", min_width=96)
+            with gr.Row():
+                doc_select = gr.Dropdown(label="Select document", choices=[], interactive=True, scale=4)
+                delete_btn = gr.Button("🗑️ Delete", variant="stop", scale=1, min_width=80)
+
+            delete_status = gr.Markdown()
+            preview_btn = gr.Button("👁️ Preview selected", min_width=96)
             preview_output = gr.Markdown()
 
-            delete_input = gr.Textbox(label="Delete document", placeholder="filename")
-            delete_btn = gr.Button("Delete", variant="stop", min_width=80)
-            delete_status = gr.Markdown()
+            def list_and_sync():
+                text, dd_update = list_docs_fn()
+                return text, dd_update, dd_update  # sync both dropdowns
 
-            refresh_btn.click(list_docs_fn, outputs=[doc_list, preview_dd])
-            preview_btn.click(preview_doc_fn, inputs=[preview_dd], outputs=[preview_output])
-            delete_btn.click(delete_doc_fn, inputs=[delete_input], outputs=[delete_status, delete_input])
-            demo.load(list_docs_fn, outputs=[doc_list, preview_dd])
+            refresh_btn.click(list_and_sync, outputs=[doc_list, doc_select, doc_select])
+            delete_btn.click(delete_doc_fn, inputs=[doc_select], outputs=[delete_status, doc_select])
+            preview_btn.click(preview_doc_fn, inputs=[doc_select], outputs=[preview_output])
+            demo.load(list_and_sync, outputs=[doc_list, doc_select, doc_select])
 
     return demo
 

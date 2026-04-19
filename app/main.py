@@ -38,6 +38,7 @@ async def lifespan(app: FastAPI):
         f"RAG App ready | "
         f"LLM: {settings.llm_provider}/{settings.llm_model} | "
         f"Embeddings: {settings.embedding_provider or settings.embedding_model} | "
+        f"Chunks: size={settings.chunk_size} overlap={settings.chunk_overlap} | "
         f"Cache TTL: {settings.query_cache_ttl_seconds}s | "
         f"Re-ranker: {'on' if settings.reranker_enabled else 'off'}"
     )

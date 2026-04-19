@@ -1,25 +1,45 @@
-# AI LLM RAG App
+# AI RAG App
 
-A local Retrieval-Augmented Generation (RAG) application built with **FastAPI**, **LangChain**, and **Gradio**. Supports pluggable LLM and embedding backends (Ollama, OpenAI, HuggingFace) and a ChromaDB vector store.
+A local **Retrieval-Augmented Generation (RAG)** application built with **FastAPI**, **LangChain**, and **Gradio**. Supports pluggable LLM backends, semantic search via ChromaDB, and multiple data source connectors.
 
 ---
 
 ## Features
 
 - 📄 Ingest PDF, TXT, Markdown, and DOCX files
-- 🔍 Semantic search via ChromaDB vector store
-- 🤖 Pluggable LLM backends — Ollama, OpenAI, HuggingFace
+- 🔍 Semantic search via ChromaDB vector store with query expansion
+- 🤖 Pluggable LLM backends — Ollama, Gemini, Groq, OpenRouter, OpenAI
 - 🌐 REST API (FastAPI) + Web UI (Gradio)
+- 🔗 Data source connectors — Web URLs, GitHub, Notion, Google Drive
+- ⚡ Query caching with TTL, optional cross-encoder re-ranking
+- 💬 Multi-turn session memory
 - 🐳 Docker Compose support
-- 🏋️ Training & LoRA fine-tuning scripts included
+
+---
+
+## Project Structure
+.
+├── app/
+│   ├── api.py          # FastAPI routes (chat, ingest, manage, sources)
+│   ├── config.py       # Settings and logger
+│   ├── main.py         # App entrypoint and lifespan
+│   ├── rag.py          # RAG pipeline (retrieval, LLM, cache)
+│   ├── ui.py           # Gradio web interface
+│   ├── connectors/     # Web, GitHub, Notion, Google Drive
+│   └── requirements.txt
+├── data/
+│   ├── uploads/        # Uploaded and default documents
+│   └── embeddings/     # ChromaDB vector store
+├── run.sh              # Setup and start script
+└── README.md
 
 ---
 
 ## Requirements
 
 - Python 3.11+
-- [Ollama](https://ollama.com) — for local LLM and embeddings
-- Docker & Docker Compose *(optional — for containerised run)*
+- [Ollama](https://ollama.com) — for local LLM inference *(optional if using API providers)*
+- Docker & Docker Compose *(optional)*
 
 ---
 
@@ -34,10 +54,19 @@ cd ai_llm
 
 ### 2. Configure *(optional)*
 
-Edit `.env` or `config.yaml` to change the LLM backend, ports, chunk size, etc.
+Create a `.env` file in the project root:
 
-```bash
-# Example: switch to OpenAI
+```env
+# Switch LLM provider (default: ollama)
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-2.0-flash-lite
+GEMINI_API_KEY=your_key_here
+
+# Or use Groq (free tier available)
+LLM_PROVIDER=groq
+GROQ_API_KEY=your_key_here
+
+# Or OpenAI
 LLM_PROVIDER=openai
 LLM_MODEL=gpt-4o
 OPENAI_API_KEY=sk-...
@@ -48,78 +77,77 @@ OPENAI_API_KEY=sk-...
 ```bash
 bash run.sh
 ```
-This will:
-- Create all required directories
-- Copy `.env.example` → `.env`
-- Create a Python virtual environment and install all dependencies
-- Pull default Ollama models (`llama3.2`, `nomic-embed-text`)
 
+This will automatically:
+- Install system dependencies
+- Create a Python virtual environment
+- Install all Python packages
+- Download the local embedding model
+- Pull the default Ollama model *(if using Ollama)*
+- Start FastAPI and Gradio
 
-| Service | URL |
-|---------|-----|
-| FastAPI | http://localhost:8000 |
-| API Docs | http://localhost:8000/docs |
-| Gradio UI | http://localhost:7860 |
+| Service   | URL                          |
+|-----------|------------------------------|
+| Gradio UI | http://localhost:7860        |
+| FastAPI   | http://localhost:8000        |
+| API Docs  | http://localhost:8000/docs   |
 
 ### 4. Ingest documents
 
-Put your files in `data/raw/`, then:
+Upload files via the **Gradio UI → Upload tab**, or use the API:
 
-```bash
-bash run.sh ingest data/raw/
-```
-
-Or ingest a single file:
-
-```bash
-bash run.sh ingest /path/to/document.pdf
-```
-
-Or open the Gradio UI at http://localhost:7860.
-
----
-
-
-## API Reference
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check + current config |
-| POST | `/ingest` | Upload and ingest a document |
-| GET | `/ingest/list` | List uploaded files |
-| POST | `/chat` | Ask a question (RAG) |
-
-Full interactive docs: http://localhost:8000/docs
-
-**Example — ingest via curl:**
 ```bash
 curl -X POST http://localhost:8000/ingest \
   -F "file=@/path/to/document.pdf"
 ```
 
-**Example — chat via curl:**
+Or drop a `default_knowledge.txt` in `data/uploads/` — it will be auto-ingested on startup if the vector DB is empty.
+
+---
+
+## API Reference
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check |
+| POST | `/ingest` | Upload and ingest a document |
+| POST | `/chat` | Ask a question (RAG, non-streaming) |
+| POST | `/chat/stream` | Ask a question (streaming SSE) |
+| GET | `/documents` | List all ingested documents |
+| GET | `/documents/{source}/preview` | Preview a document's chunks |
+| DELETE | `/documents/{source}` | Delete a document |
+| POST | `/sources/ingest/web` | Ingest from URLs |
+| POST | `/sources/ingest/github` | Ingest from GitHub repos |
+| POST | `/sources/ingest/notion` | Ingest from Notion pages |
+| POST | `/sources/ingest/gdrive` | Ingest from Google Drive |
+
+**Chat example:**
+
 ```bash
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
   -d '{"question": "Summarise the document", "k": 4}'
 ```
 
----
-
-## Training & Fine-tuning
-
-Edit the configs in `training/configs/` before running.
+**Streaming chat example:**
 
 ```bash
-bash run.sh train        # pre-train on plain .txt data
-bash run.sh finetune     # LoRA fine-tune on instruction .jsonl data
-bash run.sh evaluate     # evaluate with perplexity + BLEU
+curl -X POST http://localhost:8000/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Explain the architecture", "provider": "gemini"}'
 ```
 
-Dataset formats:
-- **Training:** `training/datasets/train.txt` — plain text, one document per line
-- **Fine-tuning:** `training/datasets/finetune.jsonl` — `{"instruction": "...", "response": "..."}`
-- **Evaluation:** `training/datasets/eval.jsonl` — same format as fine-tuning
+---
+
+## Supported LLM Providers
+
+| Provider | Default Model | Requires |
+|----------|--------------|---------|
+| `ollama` | `tinyllama` | Ollama installed locally |
+| `gemini` | `gemini-2.0-flash-lite` | `GEMINI_API_KEY` |
+| `groq` | `llama3-8b-8192` | `GROQ_API_KEY` |
+| `openrouter` | `mistralai/mistral-7b-instruct:free` | `OPENROUTER_API_KEY` |
+| `openai` | `gpt-3.5-turbo` | `OPENAI_API_KEY` |
 
 ---
 
@@ -136,14 +164,28 @@ Dataset formats:
 
 ## Configuration Reference
 
-Key settings in `config.yaml` (all overridable via `.env`):
+All settings can be overridden via `.env`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `llm.provider` | `ollama` | `ollama` / `openai` / `huggingface` |
-| `llm.model` | `llama3.2` | Model name for the LLM |
-| `embeddings.provider` | `ollama` | `ollama` / `openai` / `sentence-transformers` |
-| `embeddings.model` | `nomic-embed-text` | Embedding model name |
-| `ingestion.chunk_size` | `512` | Token size per chunk |
-| `ingestion.chunk_overlap` | `64` | Overlap between chunks |
-| `app.port` | `8000` | FastAPI port |
+| `LLM_PROVIDER` | `ollama` | LLM backend provider |
+| `LLM_MODEL` | `tinyllama` | Model name |
+| `LLM_TEMPERATURE` | `0.2` | Response randomness (0 = deterministic) |
+| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Local embedding model |
+| `CHUNK_SIZE` | `700` | Characters per document chunk |
+| `CHUNK_OVERLAP` | `120` | Overlap between chunks |
+| `RERANKER_ENABLED` | `false` | Enable cross-encoder re-ranking |
+| `RERANKER_TOP_N` | `5` | Chunks passed to LLM after re-ranking |
+| `QUERY_CACHE_TTL_SECONDS` | `600` | Cache expiry in seconds |
+| `SESSION_MEMORY_TURNS` | `6` | Chat history turns sent to LLM |
+| `APP_PORT` | `8000` | FastAPI port |
+| `UI_PORT` | `7860` | Gradio port |
+
+---
+
+## Docker
+
+```bash
+cd app/docker
+docker compose up --build
+```
